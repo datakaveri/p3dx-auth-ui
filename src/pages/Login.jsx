@@ -13,7 +13,6 @@ export default function Login() {
 
         try {
             const res = await loginUser(form);
-            console.log("LOGIN RESPONSE:", res);
 
             const token =
                 res.access_token ||
@@ -21,9 +20,7 @@ export default function Login() {
                 res?.accessToken;
 
             if (!token) {
-                setError("Login succeeded but token missing");
-                setLoading(false);
-                return;
+                throw new Error("Missing access token");
             }
 
             const expiresIn = res.expires_in ?? res?.data?.expires_in ?? res?.expiresIn ?? "";

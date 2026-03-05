@@ -1,12 +1,25 @@
 import { BACKEND_URL } from "../config";
 
+async function parseJsonSafe(res) {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 export async function registerUser(payload) {
   const res = await fetch(`${BACKEND_URL}/anon/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  return res.json();
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    const msg = data?.error || data?.message || "Register failed";
+    throw new Error(msg);
+  }
+  return data;
 }
 
 export async function loginUser(payload) {
@@ -15,7 +28,12 @@ export async function loginUser(payload) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  return res.json();
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    const msg = data?.error || data?.message || "Login failed";
+    throw new Error(msg);
+  }
+  return data;
 }
 
 export async function getMe(token) {
@@ -24,5 +42,10 @@ export async function getMe(token) {
       Authorization: `Bearer ${token}`,
     },
   });
-  return res.json();
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    const msg = data?.error || data?.message || "Unauthorized";
+    throw new Error(msg);
+  }
+  return data;
 }

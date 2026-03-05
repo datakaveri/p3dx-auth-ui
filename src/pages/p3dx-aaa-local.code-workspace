@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "../../../p3dx-aaa-local"
+		},
+		{
+			"path": "../.."
+		}
+	],
+	"settings": {
+		"remote.autoForwardPortsFallback": 0
+	}
+}
