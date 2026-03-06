@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
+import { submitPolicy } from "../api/policies";
 
 const DATASETS = [
   { id: "ds-1", name: "Dataset A (Claims)" },
@@ -24,7 +25,7 @@ const ORGS = [
 ];
 
 export default function PolicyForm() {
-  const { user, isAdmin } = useOutletContext();
+  const { user, isAdmin, token } = useOutletContext();
   const roles = useMemo(() => user?.roles || [], [user]);
   const hasDataProvider = roles.includes("data-provider");
 
@@ -44,6 +45,7 @@ export default function PolicyForm() {
   });
 
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     if (isAdmin) {
@@ -57,13 +59,50 @@ export default function PolicyForm() {
     }
   }, [hasDataProvider, returnTo]);
 
-  const onSubmit = e => {
+  const onSubmit = async e => {
     e.preventDefault();
+    setError(null);
     setSubmitted(true);
 
-    window.setTimeout(() => {
-      navigate(returnTo, { replace: true });
-    }, 900);
+    const dataset = DATASETS.find(d => d.id === form.dataset);
+    const application = APPLICATIONS.find(a => a.id === form.application);
+    const org = ORGS.find(o => o.id === form.allowedOrg);
+
+    const payload = {
+      policyId: `policy-${typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Date.now()}`,
+      itemId: form.dataset,
+      issuedBy: user?.username || user?.email || "unknown",
+      rules: {
+        dataset: {
+          id: form.dataset,
+          name: dataset?.name,
+        },
+        application: {
+          id: form.application,
+          name: application?.name,
+        },
+        allowedOrg: {
+          id: form.allowedOrg,
+          emailDomain: org?.label,
+        },
+        accessLevel: form.accessLevel,
+        purpose: form.purpose,
+        notes: form.notes,
+      },
+      ...(form.expiresAt
+        ? { expiresAt: new Date(`${form.expiresAt}T00:00:00.000Z`).toISOString() }
+        : {}),
+    };
+
+    try {
+      await submitPolicy(token, payload);
+      window.setTimeout(() => {
+        navigate(returnTo, { replace: true });
+      }, 700);
+    } catch (err) {
+      setSubmitted(false);
+      setError(err?.message || String(err));
+    }
   };
 
   return (
@@ -75,7 +114,8 @@ export default function PolicyForm() {
         </div>
       </div>
 
-      {submitted ? <div className="info-banner">Policy set. Redirecting...</div> : null}
+      {error ? <div className="error-message">{error}</div> : null}
+      {submitted ? <div className="info-banner">Policy submitted. Redirecting...</div> : null}
 
       <div className="card">
         <form onSubmit={onSubmit}>

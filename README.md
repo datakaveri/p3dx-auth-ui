@@ -2,6 +2,21 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
+## Local development
+
+This UI talks to the Node backend (anon-backend) via `VITE_BACKEND_URL`.
+
+Example:
+
+```bash
+VITE_BACKEND_URL=http://localhost:3001 npm run dev
+```
+
+Notes:
+
+- Role requests are sent to the backend under `/p3dx/*`.
+- Policy submission uses `POST /p3dx/policy` (backend proxies to APD). Ensure the backend has `APD_BASE_URL` configured and APD is running locally.
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
