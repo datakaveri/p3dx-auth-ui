@@ -8,6 +8,14 @@ async function parseJsonSafe(res) {
   }
 }
 
+function buildHttpError(res, data, fallbackMessage) {
+  const msg = data?.error || data?.message || fallbackMessage;
+  const err = new Error(msg);
+  err.statusCode = res.status;
+  err.data = data;
+  return err;
+}
+
 export async function registerUser(payload) {
   const res = await fetch(`${BACKEND_URL}/p3dx/register`, {
     method: "POST",
@@ -16,8 +24,7 @@ export async function registerUser(payload) {
   });
   const data = await parseJsonSafe(res);
   if (!res.ok || data?.status === "FAILED") {
-    const msg = data?.error || data?.message || "Register failed";
-    throw new Error(msg);
+    throw buildHttpError(res, data, "Register failed");
   }
   return data;
 }
@@ -30,8 +37,7 @@ export async function loginUser(payload) {
   });
   const data = await parseJsonSafe(res);
   if (!res.ok || data?.status === "FAILED") {
-    const msg = data?.error || data?.message || "Login failed";
-    throw new Error(msg);
+    throw buildHttpError(res, data, "Login failed");
   }
   return data;
 }
@@ -44,8 +50,7 @@ export async function getMe(token) {
   });
   const data = await parseJsonSafe(res);
   if (!res.ok || data?.status === "FAILED") {
-    const msg = data?.error || data?.message || "Unauthorized";
-    throw new Error(msg);
+    throw buildHttpError(res, data, "Unauthorized");
   }
   return data;
 }

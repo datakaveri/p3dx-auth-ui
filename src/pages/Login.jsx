@@ -48,21 +48,46 @@ export default function Login() {
 
             const password = form.password || "";
             let res;
+            let lastErr;
 
             if (identifier.includes("@")) {
-                res = await loginUser({ email: identifier, password });
-                console.log("LOGIN RESPONSE (email):", res);
+                try {
+                    res = await loginUser({ email: identifier, password });
+                    console.log("LOGIN RESPONSE (email):", res);
+                } catch (e) {
+                    lastErr = e;
+                    console.log("LOGIN ERROR (email):", e);
+                }
 
-                if (isLoginFailureResponse(res)) {
-                    const retryRes = await loginUser({ username: identifier, password });
-                    console.log("LOGIN RESPONSE (fallback username):", retryRes);
-                    if (!isLoginFailureResponse(retryRes)) {
-                        res = retryRes;
+                if (!res || isLoginFailureResponse(res)) {
+                    try {
+                        const retryRes = await loginUser({ username: identifier, password });
+                        console.log("LOGIN RESPONSE (fallback username):", retryRes);
+                        if (!isLoginFailureResponse(retryRes)) {
+                            res = retryRes;
+                            lastErr = undefined;
+                        }
+                    } catch (e) {
+                        lastErr = e;
+                        console.log("LOGIN ERROR (fallback username):", e);
                     }
                 }
             } else {
-                res = await loginUser({ username: identifier, password });
-                console.log("LOGIN RESPONSE (username):", res);
+                try {
+                    res = await loginUser({ username: identifier, password });
+                    console.log("LOGIN RESPONSE (username):", res);
+                } catch (e) {
+                    lastErr = e;
+                    console.log("LOGIN ERROR (username):", e);
+                }
+            }
+
+            if (!res) {
+                const msg = (lastErr?.message || "").toString();
+                const normalized = msg === "INVALID_CREDENTIALS" ? "Invalid username/email or password." : msg;
+                setError(normalized || "Login failed. Please try again.");
+                setLoading(false);
+                return;
             }
 
             if (isLoginFailureResponse(res)) {

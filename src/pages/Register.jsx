@@ -11,6 +11,79 @@ export default function Register() {
 
   const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
+  const applyRegisterError = (errOrMessage) => {
+    const msg = (typeof errOrMessage === "string"
+      ? errOrMessage
+      : (errOrMessage?.message || errOrMessage?.data?.error || errOrMessage?.data?.message || "Registration failed")
+    ).toString();
+    const upper = msg.toUpperCase();
+    const lower = msg.toLowerCase();
+    const nextFieldErrors = {};
+
+    const statusCode = typeof errOrMessage === "object" ? errOrMessage?.statusCode : undefined;
+    const data = typeof errOrMessage === "object" ? errOrMessage?.data : undefined;
+    const conflictFieldRaw = data?.field || data?.conflictField || data?.errorField || data?.key;
+    const conflictField = typeof conflictFieldRaw === "string" ? conflictFieldRaw.toLowerCase() : "";
+
+    const emailValue = (form.email || "").trim();
+    const emailLower = emailValue.toLowerCase();
+    const usernameValue = (form.username || "").trim();
+    const usernameLower = usernameValue.toLowerCase();
+
+    if (statusCode === 409) {
+      if (conflictField.includes("email")) {
+        nextFieldErrors.email = "Email already exists.";
+      } else if (conflictField.includes("user") || conflictField.includes("username")) {
+        nextFieldErrors.username = "Username already exists.";
+      }
+    }
+
+    if (upper === "EMAIL_ALREADY_EXISTS" || upper.includes("EMAIL_ALREADY_EXISTS")) {
+      nextFieldErrors.email = "Email already exists.";
+    }
+
+    if (upper === "USERNAME_ALREADY_EXISTS" || upper.includes("USERNAME_ALREADY_EXISTS")) {
+      const messageMentionsEmail = /\bemail\b/.test(lower) || (emailLower && lower.includes(emailLower));
+      const messageMentionsUsername = /\busername\b/.test(lower) || (usernameLower && lower.includes(usernameLower));
+      if (messageMentionsEmail) {
+        nextFieldErrors.email = "Email already exists.";
+      } else if (messageMentionsUsername) {
+        nextFieldErrors.username = "Username already exists.";
+      } else {
+        nextFieldErrors.email = "Email or username already exists.";
+        nextFieldErrors.username = "Email or username already exists.";
+      }
+    }
+
+    const isConflict = lower.includes("exist") || lower.includes("already");
+    if (Object.keys(nextFieldErrors).length === 0 && isConflict) {
+      const email = emailLower;
+      const username = usernameLower;
+
+      const mentionsEmail = /\bemail\b/.test(lower) || (email && lower.includes(email));
+      const mentionsUsername = /\busername\b/.test(lower) || (username && lower.includes(username));
+
+      if (mentionsEmail && !mentionsUsername) {
+        nextFieldErrors.email = "Email already exists.";
+      } else if (mentionsUsername && !mentionsEmail) {
+        nextFieldErrors.username = "Username already exists.";
+      } else if (mentionsEmail && mentionsUsername) {
+        nextFieldErrors.email = "Email already exists.";
+        nextFieldErrors.username = "Username already exists.";
+      } else {
+        nextFieldErrors.email = "Email or username already exists.";
+        nextFieldErrors.username = "Email or username already exists.";
+      }
+    }
+
+    if (Object.keys(nextFieldErrors).length > 0) {
+      setFieldErrors(nextFieldErrors);
+      return;
+    }
+
+    setError(msg);
+  };
+
   const validate = () => {
     const nextErrors = {};
 
@@ -62,40 +135,11 @@ export default function Register() {
       if (res.status === "SUCCESS") {
         window.location.href = "/login";
       } else {
-        const message = (res.error || "Registration failed").toString();
-        const lower = message.toLowerCase();
-        const nextFieldErrors = {};
-
-        const isConflict = lower.includes("exist") || lower.includes("already");
-        if (isConflict) {
-          const email = (form.email || "").trim().toLowerCase();
-          const username = (form.username || "").trim().toLowerCase();
-
-          const mentionsEmail = /\bemail\b/.test(lower) || (email && lower.includes(email));
-          const mentionsUsername = /\busername\b/.test(lower) || (username && lower.includes(username));
-
-          if (mentionsEmail && !mentionsUsername) {
-            nextFieldErrors.email = "Email already exists.";
-          } else if (mentionsUsername && !mentionsEmail) {
-            nextFieldErrors.username = "Username already exists.";
-          } else if (mentionsEmail && mentionsUsername) {
-            nextFieldErrors.email = "Email already exists.";
-            nextFieldErrors.username = "Username already exists.";
-          } else {
-            nextFieldErrors.email = "Email or username already exists.";
-            nextFieldErrors.username = "Email or username already exists.";
-          }
-        }
-
-        if (Object.keys(nextFieldErrors).length > 0) {
-          setFieldErrors(nextFieldErrors);
-        } else {
-          setError(message);
-        }
+        applyRegisterError(res.error || res.message || "Registration failed");
         setLoading(false);
       }
     } catch (err) {
-      setError(err.message || "Registration failed. Please try again.");
+      applyRegisterError(err);
       setLoading(false);
     }
   };
