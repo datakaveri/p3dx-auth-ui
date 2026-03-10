@@ -9,7 +9,7 @@ async function parseJsonSafe(res) {
 }
 
 export async function registerUser(payload) {
-  const res = await fetch(`${BACKEND_URL}/anon/register`, {
+  const res = await fetch(`${BACKEND_URL}/p3dx/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -23,7 +23,7 @@ export async function registerUser(payload) {
 }
 
 export async function loginUser(payload) {
-  const res = await fetch(`${BACKEND_URL}/anon/login`, {
+  const res = await fetch(`${BACKEND_URL}/p3dx/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -37,7 +37,7 @@ export async function loginUser(payload) {
 }
 
 export async function getMe(token) {
-  const res = await fetch(`${BACKEND_URL}/anon/me`, {
+  const res = await fetch(`${BACKEND_URL}/p3dx/me`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },

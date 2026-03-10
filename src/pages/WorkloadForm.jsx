@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
+import { runWorkload } from "../api/workloads";
 
 const DATASETS = [
   { id: "ds-1", name: "Dataset A (Claims)" },
@@ -16,7 +17,7 @@ const APPLICATIONS = [
 ];
 
 export default function WorkloadForm() {
-  const { isAdmin } = useOutletContext();
+  const { isAdmin, token } = useOutletContext();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -28,6 +29,8 @@ export default function WorkloadForm() {
   });
 
   const [submitted, setSubmitted] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     if (isAdmin) {
@@ -45,13 +48,28 @@ export default function WorkloadForm() {
     [form.application]
   );
 
-  const onSubmit = e => {
+  const onSubmit = async e => {
     e.preventDefault();
+    setError(null);
+    setResult(null);
     setSubmitted(true);
 
-    window.setTimeout(() => {
-      navigate(returnTo, { replace: true });
-    }, 900);
+    try {
+      if (!token) {
+        throw new Error("MISSING_AUTH_TOKEN");
+      }
+
+      const res = await runWorkload(token, {
+        datasetId: form.dataset,
+        applicationId: form.application,
+      });
+
+      setResult(res);
+    } catch (err) {
+      setError(err.message || "Run workload failed");
+    } finally {
+      setSubmitted(false);
+    }
   };
 
   return (
@@ -59,13 +77,17 @@ export default function WorkloadForm() {
       <div style={{ marginBottom: "18px" }}>
         <h3 className="section-title">Run Workload</h3>
         <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
-          Proof-of-concept. This does not create a contract or run anything yet.
+          Proof-of-concept. This will create a signed contract via the backend.
         </div>
       </div>
 
-      {submitted ? (
+      {error ? (
+        <div className="error-message">{error}</div>
+      ) : null}
+
+      {result?.contract?.contract_id ? (
         <div className="info-banner">
-          Workload started (dummy). Dataset: {selectedDataset}. Application: {selectedApp}. Redirecting...
+          Contract created: <b>{result.contract.contract_id}</b>. Dataset: {selectedDataset}. Application: {selectedApp}.
         </div>
       ) : null}
 
