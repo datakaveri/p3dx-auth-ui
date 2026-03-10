@@ -80,7 +80,7 @@ export default function App() {
         localStorage.removeItem("access_token");
         navigate("/login");
       });
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     if (!user) return;
