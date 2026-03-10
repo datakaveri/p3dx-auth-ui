@@ -19,7 +19,7 @@ export default function AppShell() {
       return;
     }
 
-    setLoading(true);
+    Promise.resolve().then(() => setLoading(true));
 
     getMe(token)
       .then(res => {
@@ -35,7 +35,7 @@ export default function AppShell() {
       .finally(() => {
         setLoading(false);
       });
-  }, [token]);
+  }, [token, navigate]);
 
   useEffect(() => {
     if (!user) return;
@@ -44,7 +44,7 @@ export default function AppShell() {
     if (path === "/app" || path === "/app/") {
       navigate(isAdmin ? "/app/admin" : "/app/services", { replace: true });
     }
-  }, [user, isAdmin, location.pathname]);
+  }, [user, isAdmin, location.pathname, navigate]);
 
   useEffect(() => {
     if (!user) return;
@@ -58,7 +58,7 @@ export default function AppShell() {
     if (!isAdmin && path.startsWith("/app/admin")) {
       navigate("/app/services", { replace: true });
     }
-  }, [user, isAdmin, location.pathname]);
+  }, [user, isAdmin, location.pathname, navigate]);
 
   if (loading || !user) {
     return (
