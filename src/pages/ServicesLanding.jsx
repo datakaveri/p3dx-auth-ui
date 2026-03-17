@@ -31,7 +31,23 @@ export default function ServicesLanding() {
         <ServiceCard
           title="Anonymization"
           description="No special role required."
-          onClick={() => navigate("/app/services/anon")}
+          onClick={() => {
+            const token = localStorage.getItem("access_token");
+            const expiresIn = localStorage.getItem("expires_in") || "";
+            const refreshToken = localStorage.getItem("refresh_token") || "";
+
+            const params = new URLSearchParams();
+            if (token) params.set("access_token", token);
+            if (expiresIn) params.set("expires_in", String(expiresIn));
+            if (refreshToken) params.set("refresh_token", refreshToken);
+
+            const hash = params.toString();
+            const redirectUrl = hash
+              ? `https://spider.p3dx.iudx.org.in/#${hash}`
+              : "https://spider.p3dx.iudx.org.in/";
+
+            window.location.assign(redirectUrl);
+          }}
         />
         <ServiceCard
           title="Federated Learning"
