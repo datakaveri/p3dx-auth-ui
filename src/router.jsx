@@ -8,6 +8,7 @@ import ServicesLanding from "./pages/ServicesLanding";
 import AnonService from "./pages/AnonService";
 import PolicyForm from "./pages/PolicyForm";
 import WorkloadForm from "./pages/WorkloadForm";
+import WorkloadResult from "./pages/WorkloadResult";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 export const router = createBrowserRouter([
@@ -30,6 +31,7 @@ export const router = createBrowserRouter([
       { path: "services/dp", element: <UserDashboard /> },
       { path: "services/policies", element: <PolicyForm /> },
       { path: "services/run", element: <WorkloadForm /> },
+      { path: "services/run/:contractId", element: <WorkloadResult /> },
       { path: "admin", element: <AdminDashboard /> },
     ],
   },

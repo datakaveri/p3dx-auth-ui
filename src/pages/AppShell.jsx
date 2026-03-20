@@ -74,13 +74,13 @@ export default function AppShell() {
   return (
     <div className="app-container">
       <div className="app-header">
-        <div>
+        <div className="nav-title">
           <h2 style={{ marginBottom: 0 }}>Dashboard</h2>
-          <div style={{ marginTop: "6px", color: "var(--text-light)", fontSize: "14px" }}>
-            Signed in as <span style={{ color: "var(--text-dark)", fontWeight: 700 }}>{user.username}</span>
+          <div className="nav-subtitle">
+            Signed in as <span style={{ color: "var(--text-dark)", fontWeight: 800 }}>{user.username}</span>
           </div>
         </div>
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+        <div className="nav-actions">
           {isAdmin ? (
             <a className={location.pathname.startsWith("/app/admin") ? "tab tab-active" : "tab"} href="/app/admin">
               Admin

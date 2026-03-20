@@ -65,6 +65,11 @@ export default function WorkloadForm() {
       });
 
       setResult(res);
+
+      const contractId = res?.contract?.contract_id;
+      if (contractId) {
+        navigate(`/app/services/run/${contractId}`);
+      }
     } catch (err) {
       setError(err.message || "Run workload failed");
     } finally {
@@ -74,10 +79,23 @@ export default function WorkloadForm() {
 
   return (
     <div>
-      <div style={{ marginBottom: "18px" }}>
-        <h3 className="section-title">Run Workload</h3>
-        <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
-          Proof-of-concept. This will create a signed contract via the backend.
+      <div className="page-header">
+        <div className="page-header-title">
+          <h3 className="section-title" style={{ marginBottom: 0 }}>Run Workload</h3>
+          <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
+            Select a dataset and application to generate a signed contract and start the TEE flow.
+          </div>
+        </div>
+        <div className="page-header-actions">
+          <button
+            className="btn btn-secondary"
+            style={{ width: "auto" }}
+            type="button"
+            disabled={submitted}
+            onClick={() => navigate(returnTo)}
+          >
+            Back
+          </button>
         </div>
       </div>
 
@@ -126,15 +144,6 @@ export default function WorkloadForm() {
           </div>
 
           <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
-            <button
-              className="btn btn-secondary"
-              style={{ width: "auto" }}
-              type="button"
-              disabled={submitted}
-              onClick={() => navigate(returnTo)}
-            >
-              Cancel
-            </button>
             <button className="btn btn-primary" style={{ width: "auto" }} type="submit" disabled={submitted}>
               {submitted ? "Running..." : "Run Workload"}
             </button>

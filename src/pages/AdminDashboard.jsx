@@ -170,10 +170,12 @@ export default function AdminDashboard() {
 
   return (
     <div>
-      <div style={{ marginBottom: "18px" }}>
-        <h3 className="section-title">Admin</h3>
-        <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
-          Review and decide role requests.
+      <div className="page-header">
+        <div className="page-header-title">
+          <h3 className="section-title" style={{ marginBottom: 0 }}>Admin</h3>
+          <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
+            Review and decide role requests.
+          </div>
         </div>
       </div>
 

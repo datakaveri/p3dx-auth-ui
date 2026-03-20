@@ -66,14 +66,14 @@ export default function UserDashboard() {
 
   return (
     <div>
-      <div style={{ marginBottom: "18px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center" }}>
-          <div>
-            <h3 className="section-title" style={{ marginBottom: "6px" }}>{serviceLabel}</h3>
-            <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
-              Manage your access and actions for this service.
-            </div>
+      <div className="page-header">
+        <div className="page-header-title">
+          <h3 className="section-title" style={{ marginBottom: 0 }}>{serviceLabel}</h3>
+          <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
+            Manage your access and actions for this service.
           </div>
+        </div>
+        <div className="page-header-actions">
           <button
             className="btn btn-secondary"
             style={{ width: "auto" }}

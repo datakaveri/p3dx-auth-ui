@@ -107,10 +107,23 @@ export default function PolicyForm() {
 
   return (
     <div>
-      <div style={{ marginBottom: "18px" }}>
-        <h3 className="section-title">Set Policy</h3>
-        <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
-          Proof-of-concept form. This does not store anything yet.
+      <div className="page-header">
+        <div className="page-header-title">
+          <h3 className="section-title" style={{ marginBottom: 0 }}>Set Policy</h3>
+          <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
+            Submit a dataset access policy to APD so TOP can validate workload contracts.
+          </div>
+        </div>
+        <div className="page-header-actions">
+          <button
+            className="btn btn-secondary"
+            style={{ width: "auto" }}
+            type="button"
+            disabled={submitted}
+            onClick={() => navigate(returnTo)}
+          >
+            Back
+          </button>
         </div>
       </div>
 

@@ -151,87 +151,112 @@ export default function Register() {
   };
 
   return (
-    <div className="container">
-      <h1>Create Account</h1>
-      <p style={{ marginBottom: "32px", color: "var(--text-light)" }}>
-        Join us today and get started
-      </p>
+    <div className="auth-shell">
+      <div className="auth-card">
+        <div className="auth-left">
+          <div className="brand">
+            <div className="brand-mark" />
+            <div>
+              <div className="brand-name">Data For Public Good</div>
+              <div className="brand-sub">Secure data workflows</div>
+            </div>
+          </div>
 
-      {error && <div className="error-message">{error}</div>}
+          <div className="hero-title">
+            Create your account for secure <strong>workload execution</strong>
+          </div>
+          <div className="hero-desc">
+            Registration enables role requests, policy submission (data-provider), and workload runs with signed contracts.
+          </div>
 
-      <div className="form-group">
-        <label htmlFor="username">Username</label>
-        <input
-          id="username"
-          type="text"
-          placeholder="Choose a username"
-          value={form.username || ""}
-          onChange={e => setForm({ ...form, username: e.target.value })}
-          onKeyPress={handleKeyPress}
-          disabled={loading}
-        />
-        {fieldErrors.username && <div className="field-error">{fieldErrors.username}</div>}
-      </div>
+          <div className="hero-badges">
+            <span className="hero-pill">Keycloak backed</span>
+            <span className="hero-pill">Role based</span>
+            <span className="hero-pill">Audit friendly</span>
+          </div>
+        </div>
 
-      <div className="form-group">
-        <label htmlFor="email">Email Address</label>
-        <input
-          id="email"
-          type="email"
-          placeholder="Enter your email"
-          value={form.email || ""}
-          onChange={e => setForm({ ...form, email: e.target.value })}
-          onKeyPress={handleKeyPress}
-          disabled={loading}
-        />
-        {fieldErrors.email && <div className="field-error">{fieldErrors.email}</div>}
-      </div>
+        <div className="auth-right">
+          <h1 style={{ marginBottom: "6px" }}>Create Account</h1>
+          <p style={{ marginBottom: "22px", color: "var(--text-light)" }}>
+            Join us today and get started.
+          </p>
 
-      <div className="form-group">
-        <label htmlFor="firstName">First Name</label>
-        <input
-          id="firstName"
-          type="text"
-          placeholder="Your first name"
-          value={form.firstName || ""}
-          onChange={e => setForm({ ...form, firstName: e.target.value })}
-          onKeyPress={handleKeyPress}
-          disabled={loading}
-        />
-      </div>
+          {error && <div className="error-message">{error}</div>}
 
-      <div className="form-group">
-        <label htmlFor="lastName">Last Name</label>
-        <input
-          id="lastName"
-          type="text"
-          placeholder="Your last name"
-          value={form.lastName || ""}
-          onChange={e => setForm({ ...form, lastName: e.target.value })}
-          onKeyPress={handleKeyPress}
-          disabled={loading}
-        />
-      </div>
+          <div className="form-group">
+            <label htmlFor="username">Username</label>
+            <input
+              id="username"
+              type="text"
+              placeholder="Choose a username"
+              value={form.username || ""}
+              onChange={e => setForm({ ...form, username: e.target.value })}
+              onKeyPress={handleKeyPress}
+              disabled={loading}
+            />
+            {fieldErrors.username && <div className="field-error">{fieldErrors.username}</div>}
+          </div>
 
-      <div className="form-group">
-        <label htmlFor="password">Password</label>
-        <div className="password-input-wrapper">
-          <input
-            id="password"
-            type={showPassword ? "text" : "password"}
-            placeholder="Create a strong password"
-            value={form.password || ""}
-            onChange={e => setForm({ ...form, password: e.target.value })}
-            onKeyPress={handleKeyPress}
-            disabled={loading}
-          />
-          <button
-            type="button"
-            className="password-toggle"
-            onClick={() => setShowPassword(v => !v)}
-            disabled={loading}
-            aria-label={showPassword ? "Hide password" : "Show password"}
-          >
+          <div className="form-group">
+            <label htmlFor="email">Email Address</label>
+            <input
+              id="email"
+              type="email"
+              placeholder="Enter your email"
+              value={form.email || ""}
+              onChange={e => setForm({ ...form, email: e.target.value })}
+              onKeyPress={handleKeyPress}
+              disabled={loading}
+            />
+            {fieldErrors.email && <div className="field-error">{fieldErrors.email}</div>}
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="firstName">First Name</label>
+            <input
+              id="firstName"
+              type="text"
+              placeholder="Your first name"
+              value={form.firstName || ""}
+              onChange={e => setForm({ ...form, firstName: e.target.value })}
+              onKeyPress={handleKeyPress}
+              disabled={loading}
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="lastName">Last Name</label>
+            <input
+              id="lastName"
+              type="text"
+              placeholder="Your last name"
+              value={form.lastName || ""}
+              onChange={e => setForm({ ...form, lastName: e.target.value })}
+              onKeyPress={handleKeyPress}
+              disabled={loading}
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="password">Password</label>
+            <div className="password-input-wrapper">
+              <input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                placeholder="Create a strong password"
+                value={form.password || ""}
+                onChange={e => setForm({ ...form, password: e.target.value })}
+                onKeyPress={handleKeyPress}
+                disabled={loading}
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowPassword(v => !v)}
+                disabled={loading}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
             {showPassword ? (
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M3 3L21 21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -246,10 +271,10 @@ export default function Register() {
                 <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             )}
-          </button>
-        </div>
-        {fieldErrors.password && <div className="field-error">{fieldErrors.password}</div>}
-      </div>
+              </button>
+            </div>
+            {fieldErrors.password && <div className="field-error">{fieldErrors.password}</div>}
+          </div>
 
       <div className="form-group">
         <label htmlFor="confirmPassword">Confirm Password</label>
@@ -291,18 +316,22 @@ export default function Register() {
         )}
       </div>
 
-      <button 
-        className="btn btn-primary" 
+      <button
+        className="btn btn-primary"
         onClick={submit}
         disabled={loading}
+        type="button"
       >
-        {loading ? "Creating account..." : "Create Account"}
+        {loading ? "Creating..." : "Create Account"}
       </button>
 
       <div className="auth-link">
         <p>
-          Already registered? <a href="/login">Sign in</a>
+          Already have an account? <a href="/login">Sign in</a>
         </p>
+      </div>
+
+        </div>
       </div>
     </div>
   );
