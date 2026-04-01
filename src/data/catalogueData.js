@@ -1,0 +1,316 @@
+export const datasets = [
+  {
+    id: "ds-001",
+    name: "Healthcare Patient Records",
+    description:
+      "Anonymized patient records including demographics, diagnoses, and treatment outcomes for medical research.",
+    provider: "National Health Institute",
+    category: "Healthcare",
+    size: "2.4 GB",
+    records: 1250000,
+    format: "Parquet",
+    lastUpdated: "2026-03-15",
+    accessPolicy: {
+      allowedTasks: ["Training", "Inference", "Analysis"],
+      duration: "30 days",
+      restrictions: ["No re-identification", "Research only"],
+    },
+    metadata: {
+      columns: [
+        { name: "patient_id", type: "string", description: "Anonymized ID" },
+        { name: "age", type: "integer", description: "Patient age at admission" },
+        { name: "diagnosis_code", type: "string", description: "ICD-10 code" },
+        { name: "treatment", type: "string", description: "Treatment category" },
+        { name: "outcome", type: "string", description: "Treatment outcome" },
+      ],
+      tags: ["healthcare", "medical", "patient-data", "research"],
+      license: "Research License v2.0",
+    },
+    sampleData: [
+      { patient_id: "P-XXXX1", age: 45, diagnosis_code: "J18.9", treatment: "Antibiotics", outcome: "Recovered" },
+      { patient_id: "P-XXXX2", age: 62, diagnosis_code: "I21.0", treatment: "Surgery", outcome: "Stable" },
+      { patient_id: "P-XXXX3", age: 38, diagnosis_code: "E11.9", treatment: "Medication", outcome: "Ongoing" },
+    ],
+  },
+  {
+    id: "ds-002",
+    name: "Financial Transaction Dataset",
+    description:
+      "Synthetic financial transactions for fraud detection model training and validation.",
+    provider: "Central Bank Authority",
+    category: "Finance",
+    size: "5.1 GB",
+    records: 8500000,
+    format: "CSV",
+    lastUpdated: "2026-03-10",
+    accessPolicy: {
+      allowedTasks: ["Training", "Inference"],
+      duration: "90 days",
+      restrictions: ["No export", "Approved models only"],
+    },
+    metadata: {
+      columns: [
+        { name: "transaction_id", type: "string", description: "Unique transaction identifier" },
+        { name: "amount", type: "float", description: "Transaction amount in USD" },
+        { name: "timestamp", type: "datetime", description: "Transaction timestamp" },
+        { name: "category", type: "string", description: "Transaction category" },
+        { name: "is_fraud", type: "boolean", description: "Fraud indicator" },
+      ],
+      tags: ["finance", "transactions", "fraud-detection", "synthetic"],
+      license: "Enterprise License",
+    },
+    sampleData: [
+      { transaction_id: "TXN-001", amount: 125.5, timestamp: "2026-03-01 09:15:00", category: "Retail", is_fraud: "No" },
+      { transaction_id: "TXN-002", amount: 2500.0, timestamp: "2026-03-01 14:22:00", category: "Transfer", is_fraud: "No" },
+      { transaction_id: "TXN-003", amount: 9999.99, timestamp: "2026-03-01 23:45:00", category: "Online", is_fraud: "Yes" },
+    ],
+  },
+  {
+    id: "ds-003",
+    name: "Urban Traffic Patterns",
+    description:
+      "Real-time traffic flow data from metropolitan sensors for smart city applications.",
+    provider: "City Transport Authority",
+    category: "Transportation",
+    size: "890 MB",
+    records: 3200000,
+    format: "JSON",
+    lastUpdated: "2026-03-20",
+    accessPolicy: {
+      allowedTasks: ["Training", "Inference", "Analysis", "Visualization"],
+      duration: "Unlimited",
+      restrictions: ["Attribution required"],
+    },
+    metadata: {
+      columns: [
+        { name: "sensor_id", type: "string", description: "Sensor location identifier" },
+        { name: "vehicle_count", type: "integer", description: "Vehicles per hour" },
+        { name: "avg_speed", type: "float", description: "Average speed in km/h" },
+        { name: "congestion_level", type: "string", description: "Low/Medium/High" },
+        { name: "timestamp", type: "datetime", description: "Measurement time" },
+      ],
+      tags: ["traffic", "smart-city", "iot", "transportation"],
+      license: "Open Data License",
+    },
+    sampleData: [
+      { sensor_id: "SEN-A1", vehicle_count: 450, avg_speed: 35.2, congestion_level: "Medium", timestamp: "2026-03-20 08:00" },
+      { sensor_id: "SEN-B2", vehicle_count: 120, avg_speed: 55.8, congestion_level: "Low", timestamp: "2026-03-20 08:00" },
+      { sensor_id: "SEN-C3", vehicle_count: 820, avg_speed: 12.5, congestion_level: "High", timestamp: "2026-03-20 08:00" },
+    ],
+  },
+  {
+    id: "ds-004",
+    name: "Satellite Imagery Collection",
+    description:
+      "High-resolution satellite images for environmental monitoring and land use classification.",
+    provider: "Space Agency Consortium",
+    category: "Geospatial",
+    size: "45 GB",
+    records: 25000,
+    format: "GeoTIFF",
+    lastUpdated: "2026-03-18",
+    accessPolicy: {
+      allowedTasks: ["Training", "Inference"],
+      duration: "60 days",
+      restrictions: ["Government approved only", "No commercial use"],
+    },
+    metadata: {
+      columns: [
+        { name: "image_id", type: "string", description: "Unique image identifier" },
+        { name: "coordinates", type: "geometry", description: "Bounding box coordinates" },
+        { name: "resolution", type: "float", description: "Resolution in meters/pixel" },
+        { name: "capture_date", type: "date", description: "Image capture date" },
+        { name: "cloud_cover", type: "float", description: "Cloud coverage percentage" },
+      ],
+      tags: ["satellite", "imagery", "geospatial", "environmental"],
+      license: "Government Research License",
+    },
+    sampleData: [
+      { image_id: "SAT-2026-001", coordinates: "BBOX(12.4,45.2,12.8,45.6)", resolution: 0.5, capture_date: "2026-03-15", cloud_cover: 5.2 },
+      { image_id: "SAT-2026-002", coordinates: "BBOX(13.1,44.8,13.5,45.2)", resolution: 0.5, capture_date: "2026-03-16", cloud_cover: 12.8 },
+    ],
+  },
+  {
+    id: "ds-005",
+    name: "Energy Consumption Metrics",
+    description:
+      "Smart meter readings from residential and commercial buildings for energy optimization.",
+    provider: "National Grid Authority",
+    category: "Energy",
+    size: "1.8 GB",
+    records: 4500000,
+    format: "Parquet",
+    lastUpdated: "2026-03-22",
+    accessPolicy: {
+      allowedTasks: ["Training", "Analysis"],
+      duration: "180 days",
+      restrictions: ["Aggregated results only"],
+    },
+    metadata: {
+      columns: [
+        { name: "meter_id", type: "string", description: "Smart meter identifier" },
+        { name: "consumption_kwh", type: "float", description: "Energy consumed in kWh" },
+        { name: "timestamp", type: "datetime", description: "Reading timestamp" },
+        { name: "building_type", type: "string", description: "Residential/Commercial" },
+        { name: "temperature", type: "float", description: "Ambient temperature" },
+      ],
+      tags: ["energy", "smart-grid", "consumption", "iot"],
+      license: "Utility Data Agreement",
+    },
+    sampleData: [
+      { meter_id: "MTR-R001", consumption_kwh: 2.45, timestamp: "2026-03-22 00:00", building_type: "Residential", temperature: 18.5 },
+      { meter_id: "MTR-C001", consumption_kwh: 125.8, timestamp: "2026-03-22 00:00", building_type: "Commercial", temperature: 18.5 },
+    ],
+  },
+];
+
+export const applications = [
+  {
+    id: "app-1",
+    name: "MedPredict Pro",
+    description:
+      "Advanced machine learning model for predicting patient outcomes and treatment effectiveness based on historical medical data.",
+    provider: "HealthTech Solutions",
+    category: "Healthcare",
+    version: "3.2.1",
+    capabilities: ["Outcome Prediction", "Risk Assessment", "Treatment Recommendation"],
+    inputTypes: ["Parquet", "CSV", "JSON"],
+    outputTypes: ["JSON", "PDF Report"],
+    lastUpdated: "2026-03-10",
+    documentation: "https://docs.healthtech.io/medpredict",
+    metadata: {
+      framework: "TensorFlow",
+      tags: ["healthcare", "ml", "prediction", "medical"],
+      performance: {
+        accuracy: "94.2%",
+        latency: "< 200ms",
+        throughput: "1000 req/s",
+      },
+    },
+  },
+  {
+    id: "app-2",
+    name: "FraudShield AI",
+    description:
+      "Real-time fraud detection system using ensemble learning techniques for financial transaction analysis.",
+    provider: "SecureFinance Corp",
+    category: "Finance",
+    version: "2.8.0",
+    capabilities: ["Fraud Detection", "Anomaly Detection", "Risk Scoring"],
+    inputTypes: ["CSV", "JSON", "Streaming"],
+    outputTypes: ["JSON", "Alerts"],
+    lastUpdated: "2026-03-18",
+    documentation: "https://docs.securefinance.io/fraudshield",
+    metadata: {
+      framework: "PyTorch",
+      tags: ["finance", "fraud", "security", "real-time"],
+      performance: {
+        accuracy: "99.1%",
+        latency: "< 50ms",
+        throughput: "10000 req/s",
+      },
+    },
+  },
+  {
+    id: "app-3",
+    name: "TrafficFlow Optimizer",
+    description:
+      "Deep learning model for traffic prediction and optimization, enabling smart city traffic management.",
+    provider: "SmartCity Labs",
+    category: "Transportation",
+    version: "1.5.2",
+    capabilities: ["Traffic Prediction", "Route Optimization", "Congestion Analysis"],
+    inputTypes: ["JSON", "Streaming"],
+    outputTypes: ["JSON", "Visualization"],
+    lastUpdated: "2026-03-20",
+    documentation: "https://docs.smartcitylabs.io/trafficflow",
+    metadata: {
+      framework: "JAX",
+      tags: ["traffic", "smart-city", "optimization", "prediction"],
+      performance: {
+        accuracy: "91.5%",
+        latency: "< 100ms",
+        throughput: "5000 req/s",
+      },
+    },
+  },
+  {
+    id: "app-4",
+    name: "GeoVision Classifier",
+    description:
+      "Computer vision model for satellite image classification, land use detection, and environmental change monitoring.",
+    provider: "EarthWatch AI",
+    category: "Geospatial",
+    version: "4.0.0",
+    capabilities: ["Image Classification", "Object Detection", "Change Detection"],
+    inputTypes: ["GeoTIFF", "PNG", "JPEG"],
+    outputTypes: ["GeoJSON", "PNG Mask", "CSV"],
+    lastUpdated: "2026-03-15",
+    documentation: "https://docs.earthwatch.ai/geovision",
+    metadata: {
+      framework: "PyTorch",
+      tags: ["satellite", "computer-vision", "classification", "environmental"],
+      performance: {
+        accuracy: "96.8%",
+        latency: "< 500ms",
+        throughput: "200 req/s",
+      },
+    },
+  },
+  {
+    id: "app-5",
+    name: "EnergyPredict ML",
+    description:
+      "Time-series forecasting model for energy consumption prediction and demand optimization.",
+    provider: "GreenTech Analytics",
+    category: "Energy",
+    version: "2.1.0",
+    capabilities: ["Demand Forecasting", "Anomaly Detection", "Optimization"],
+    inputTypes: ["Parquet", "CSV"],
+    outputTypes: ["JSON", "Time-series"],
+    lastUpdated: "2026-03-22",
+    documentation: "https://docs.greentech.io/energypredict",
+    metadata: {
+      framework: "Prophet + XGBoost",
+      tags: ["energy", "forecasting", "time-series", "optimization"],
+      performance: {
+        accuracy: "92.3%",
+        latency: "< 150ms",
+        throughput: "2000 req/s",
+      },
+    },
+  },
+  {
+    id: "app-6",
+    name: "PrivacyGuard Anonymizer",
+    description:
+      "Data anonymization and privacy-preserving transformation tool using differential privacy techniques.",
+    provider: "PrivacyFirst Inc",
+    category: "Privacy",
+    version: "1.8.5",
+    capabilities: ["Data Anonymization", "K-Anonymity", "Differential Privacy"],
+    inputTypes: ["CSV", "JSON", "Parquet"],
+    outputTypes: ["Same as input"],
+    lastUpdated: "2026-03-12",
+    documentation: "https://docs.privacyfirst.io/guard",
+    metadata: {
+      framework: "Custom",
+      tags: ["privacy", "anonymization", "gdpr", "compliance"],
+      performance: {
+        accuracy: "N/A",
+        latency: "< 300ms",
+        throughput: "3000 req/s",
+      },
+    },
+  },
+];
+
+export const categories = [
+  "All Categories",
+  "Healthcare",
+  "Finance",
+  "Transportation",
+  "Geospatial",
+  "Energy",
+  "Privacy",
+];

@@ -1,31 +1,148 @@
-# React + Vite
+# p3dx-auth-ui
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + Vite frontend for the P3DX platform.
 
-## Local development
+Provides login, registration, role management, workload submission, and result viewing. In production it is built as a static SPA and served by nginx at `https://auth.p3dx.iudx.org.in` alongside the p3dx-aaa backend.
 
-This UI talks to the Node backend (anon-backend) via `VITE_BACKEND_URL`.
+---
 
-Example:
+## What this repo does
+
+- Login and registration forms (credentials submitted to p3dx-aaa via `/p3dx/login` and `/p3dx/register`)
+- Role-based dashboard — different views for regular users, data providers, and admins
+- Services landing page with SSO handoff to external services (Spider anonymisation)
+- Set Policy form — data providers submit dataset access policies
+- Run Workload form — users select a dataset and application, triggering contract generation
+- Workload Result page — displays TEE status and the final signed contract
+- Admin panel — approve or deny role requests
+
+---
+
+## Repository Structure
+
+```
+p3dx-auth-ui/
+├── src/
+│   ├── pages/
+│   │   ├── Login.jsx            # Login form
+│   │   ├── Register.jsx         # Registration form
+│   │   ├── AppShell.jsx         # Authenticated layout wrapper
+│   │   ├── ServicesLanding.jsx  # Service tiles (Spider SSO handoff, FL, SMPC, DP)
+│   │   ├── AnonService.jsx      # Anonymisation service page
+│   │   ├── UserDashboard.jsx    # FL / SMPC / DP placeholder dashboards
+│   │   ├── PolicyForm.jsx       # Set Policy — data-provider role required
+│   │   ├── WorkloadForm.jsx     # Run Workload — select dataset + application
+│   │   ├── WorkloadResult.jsx   # Workload result — TEE status + signed contract
+│   │   └── AdminDashboard.jsx   # Admin — role request approval
+│   ├── components/
+│   │   └── ProtectedRoute.jsx   # Redirects unauthenticated users to /login
+│   ├── api/                     # fetch wrappers for each backend endpoint
+│   ├── data/
+│   │   └── catalogueData.js     # Dataset and application catalogue (ids + metadata)
+│   ├── router.jsx               # React Router route definitions
+│   └── config.js                # VITE_BACKEND_URL and VITE_APP_URL
+├── .env.production              # Production env (VITE_BACKEND_URL, VITE_APP_URL)
+├── vite.config.js               # Dev server on port 5174
+└── package.json
+```
+
+---
+
+## Routes
+
+| Path | Auth | Component |
+|---|---|---|
+| `/` | No | Login |
+| `/login` | No | Login |
+| `/register` | No | Register |
+| `/app/services` | Yes | Services landing |
+| `/app/services/anon` | Yes | Anonymisation service |
+| `/app/services/fl` | Yes | Federated Learning dashboard |
+| `/app/services/smpc` | Yes | SMPC dashboard |
+| `/app/services/dp` | Yes | Differential Privacy dashboard |
+| `/app/services/policies` | Yes + `data-provider` | Set Policy form |
+| `/app/services/run` | Yes + `user` | Run Workload form |
+| `/app/services/run/:contractId` | Yes + `user` | Workload result |
+| `/app/admin` | Yes + `admin` | Admin dashboard |
+
+---
+
+## Local Development
+
+### Prerequisites
+
+- Node.js v18+
+- p3dx-aaa backend running on port 3001
+
+### Install and run
+
+```bash
+npm install
+npm run dev
+```
+
+Dev server starts at `http://localhost:5174`.
+
+To point at a different backend:
 
 ```bash
 VITE_BACKEND_URL=http://localhost:3001 npm run dev
 ```
 
-Notes:
+### Notes
 
-- Role requests are sent to the backend under `/p3dx/*`.
-- Policy submission uses `POST /p3dx/policy` (backend proxies to APD). Ensure the backend has `APD_BASE_URL` configured and APD is running locally.
+- Role requests go to `/p3dx/role-requests` on the backend.
+- Policy submission uses `POST /p3dx/policy` — the backend proxies this to APD. Ensure `APD_BASE_URL` is set in the backend `.env` and APD is running.
+- The Run Workload form uses dataset and application IDs from `src/data/catalogueData.js`. These IDs must match what is stored in APD policies and in the backend's `compose-urls.json`.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Production Build & Deployment
 
-## React Compiler
+### Environment
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Create `.env.production` (already present in the repo):
 
-## Expanding the ESLint configuration
+```env
+VITE_BACKEND_URL=https://auth.p3dx.iudx.org.in
+VITE_APP_URL=https://auth.p3dx.iudx.org.in
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### Build
+
+```bash
+npm run build
+```
+
+Output goes to `dist/`. nginx serves this directory as a static SPA at `auth.p3dx.iudx.org.in`.
+
+### nginx routing
+
+nginx serves `dist/` for all non-API paths and proxies `/anon/*` and `/p3dx/*` to the p3dx-aaa backend:
+
+```nginx
+location /assets/ { root /path/to/p3dx-auth-ui/dist; }
+location /anon/   { proxy_pass http://127.0.0.1:3001; }
+location /p3dx/   { proxy_pass http://127.0.0.1:3001; }
+location /        { root /path/to/p3dx-auth-ui/dist; try_files $uri $uri/ /index.html; }
+```
+
+See p3dx-aaa `Setup.md §9.6–9.7` for the full nginx config and directory permission requirements.
+
+---
+
+## Spider SSO Handoff
+
+When a user opens the Anonymisation service tile, the UI redirects to Spider and passes the Keycloak tokens via URL hash:
+
+```
+https://spider.p3dx.iudx.org.in/#access_token=...&refresh_token=...&expires_in=...
+```
+
+Tokens are read from `localStorage`. After Spider logout, the user is redirected back to `https://auth.p3dx.iudx.org.in/p3dx/login`.
+
+---
+
+## More Information
+
+See p3dx-aaa `Setup.md` for the full platform architecture, backend setup, and end-to-end workload flow.

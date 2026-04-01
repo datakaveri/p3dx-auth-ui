@@ -1,27 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { submitPolicy } from "../api/policies";
-
-const DATASETS = [
-  { id: "ds-1", name: "Dataset A (Claims)" },
-  { id: "ds-2", name: "Dataset B (Vitals)" },
-  { id: "ds-3", name: "Dataset C (Lab Results)" },
-  { id: "ds-4", name: "Dataset D (Imaging Metadata)" },
-];
-
-const APPLICATIONS = [
-  { id: "app-1", name: "Model 1 (Risk Prediction)" },
-  { id: "app-2", name: "Model 2 (Readmission)" },
-  { id: "app-3", name: "Model 3 (Diabetes)" },
-  { id: "app-4", name: "Model 4 (NLP Classifier)" },
-];
+import { datasets as DATASETS, applications as APPLICATIONS } from "../data/catalogueData";
 
 const ORGS = [
-  { id: "datakaveri", label: "@datakaveri.org" },
-  { id: "city-hospital", label: "@city-hospital.org" },
-  { id: "research-lab", label: "@researchlab.ai" },
+  { id: "datakaveri", label: "@gmail.com" },
+  { id: "city-hospital", label: "@datakaveri.org" },
+  { id: "research-lab", label: "@yahoo.com" },
   { id: "university", label: "@university.edu" },
-  { id: "partner", label: "@partner.example" },
 ];
 
 export default function PolicyForm() {
