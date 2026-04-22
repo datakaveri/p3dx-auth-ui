@@ -26,7 +26,7 @@ export default function AdminDashboard() {
     const s = String(status || "").toUpperCase();
     if (s === "APPROVED") return "badge badge-success";
     if (s === "REJECTED") return "badge badge-error";
-    if (s === "PENDING") return "badge badge-warning";
+    if (s === "PENDING") return "badge badge-warning badge-pulse";
     return "badge";
   };
 
@@ -138,18 +138,16 @@ export default function AdminDashboard() {
                     <td>{formatDateTime(req.created_at || req.created_at_iso)}</td>
                     <td>
                       {showActions ? (
-                        <div style={{ display: "flex", gap: "10px" }}>
+                        <div style={{ display: "flex", gap: "8px" }}>
                           <button
-                            className="btn btn-secondary"
-                            style={{ width: "auto", padding: "10px 14px" }}
+                            className="btn btn-approve"
                             onClick={() => openDecision(req, "APPROVE")}
                             disabled={actionLoading || req.status !== "PENDING"}
                           >
                             Approve
                           </button>
                           <button
-                            className="btn btn-secondary"
-                            style={{ width: "auto", padding: "10px 14px" }}
+                            className="btn btn-reject"
                             onClick={() => openDecision(req, "REJECT")}
                             disabled={actionLoading || req.status !== "PENDING"}
                           >

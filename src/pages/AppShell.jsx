@@ -103,7 +103,9 @@ export default function AppShell() {
         </div>
       </div>
 
-      <Outlet context={{ user, token, isAdmin }} />
+      <div key={location.pathname} className="page-enter">
+        <Outlet context={{ user, token, isAdmin }} />
+      </div>
     </div>
   );
 }

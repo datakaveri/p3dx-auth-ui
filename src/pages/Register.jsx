@@ -155,7 +155,6 @@ export default function Register() {
       <div className="auth-card">
         <div className="auth-left">
           <div className="brand">
-            <div className="brand-mark" />
             <div>
               <div className="brand-name">Data For Public Good</div>
               <div className="brand-sub">Secure data workflows</div>
@@ -167,12 +166,6 @@ export default function Register() {
           </div>
           <div className="hero-desc">
             Registration enables role requests, policy submission (data-provider), and workload runs with signed contracts.
-          </div>
-
-          <div className="hero-badges">
-            <span className="hero-pill">Keycloak backed</span>
-            <span className="hero-pill">Role based</span>
-            <span className="hero-pill">Audit friendly</span>
           </div>
         </div>
 

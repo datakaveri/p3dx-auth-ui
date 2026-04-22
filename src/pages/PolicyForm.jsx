@@ -220,7 +220,7 @@ export default function PolicyForm() {
             />
           </div>
 
-          <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+          <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end", marginTop: "16px", paddingTop: "16px", borderTop: "1px solid var(--border-color)" }}>
             <button
               className="btn btn-secondary"
               style={{ width: "auto" }}

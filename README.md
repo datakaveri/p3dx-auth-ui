@@ -10,11 +10,11 @@ Provides login, registration, role management, workload submission, and result v
 
 - Login and registration forms (credentials submitted to p3dx-aaa via `/p3dx/login` and `/p3dx/register`)
 - Role-based dashboard — different views for regular users, data providers, and admins
-- Services landing page with SSO handoff to external services (Spider anonymisation)
+- Services landing page with role-aware service cards and SSO handoff to external services (Spider anonymisation)
 - Set Policy form — data providers submit dataset access policies
-- Run Workload form — users select a dataset and application, triggering contract generation
-- Workload Result page — displays TEE status and the final signed contract
-- Admin panel — approve or deny role requests
+- Run Workload form — users select a dataset and application, triggering TEE workload execution via TOP
+- Workload Result page — displays TEE status, signed contract, and one-click copy to clipboard
+- Admin panel — approve or deny role requests with distinct action buttons
 
 ---
 
@@ -94,6 +94,7 @@ VITE_BACKEND_URL=http://localhost:3001 npm run dev
 - Role requests go to `/p3dx/role-requests` on the backend.
 - Policy submission uses `POST /p3dx/policy` — the backend proxies this to APD. Ensure `APD_BASE_URL` is set in the backend `.env` and APD is running.
 - The Run Workload form uses dataset and application IDs from `src/data/catalogueData.js`. These IDs must match what is stored in APD policies and in the backend's `compose-urls.json`.
+- Page transitions (fade + slide-up) are applied on every route change via a keyed wrapper in `AppShell.jsx`.
 
 ---
 

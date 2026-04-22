@@ -20,6 +20,9 @@ export default function UserDashboard() {
   const hasApplicationProvider = roles.includes("application-provider");
   const hasDataProvider = roles.includes("data-provider");
 
+  const DISPLAY_ROLES = ["user", "application-provider", "data-provider"];
+  const displayRoles = roles.filter(r => DISPLAY_ROLES.includes(r));
+
   const serviceLabel = useMemo(() => {
     const path = location.pathname;
     if (path.includes("/services/fl")) return "Federated Learning";
@@ -39,7 +42,7 @@ export default function UserDashboard() {
     const s = String(status || "").toUpperCase();
     if (s === "APPROVED") return "badge badge-success";
     if (s === "REJECTED") return "badge badge-error";
-    if (s === "PENDING") return "badge badge-warning";
+    if (s === "PENDING") return "badge badge-warning badge-pulse";
     return "badge";
   };
 
@@ -64,6 +67,9 @@ export default function UserDashboard() {
     (roleToRequest === "application-provider" && hasApplicationProvider) ||
     (roleToRequest === "data-provider" && hasDataProvider);
 
+  const pendingCount = myRequests.filter(r => String(r.status || "").toUpperCase() === "PENDING").length;
+  const approvedCount = myRequests.filter(r => String(r.status || "").toUpperCase() === "APPROVED").length;
+
   return (
     <div>
       <div className="page-header">
@@ -85,6 +91,23 @@ export default function UserDashboard() {
         </div>
       </div>
 
+      {/* Stats row */}
+      <div className="stat-row">
+        <div className="stat-card">
+          <div className="stat-card__label">Roles</div>
+          <div className="stat-card__value stat-card__value--blue">{displayRoles.length}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-card__label">Pending Requests</div>
+          <div className="stat-card__value stat-card__value--amber">{pendingCount}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-card__label">Approved</div>
+          <div className="stat-card__value stat-card__value--green">{approvedCount}</div>
+        </div>
+      </div>
+
+      {/* User info card */}
       <div className="card" style={{ marginBottom: "18px" }}>
         <div className="grid">
           <div>
@@ -101,9 +124,9 @@ export default function UserDashboard() {
             Roles
           </div>
           <div className="pill-row">
-            {Array.isArray(user.roles) && user.roles.length > 0 ? (
-              user.roles.map(r => (
-                <span key={r} className={r === "admin" ? "pill pill-admin" : "pill"}>
+            {displayRoles.length > 0 ? (
+              displayRoles.map(r => (
+                <span key={r} className="pill">
                   {r}
                 </span>
               ))
@@ -128,7 +151,7 @@ export default function UserDashboard() {
           >
             <div className="action-title">Run Workload</div>
             <div className="action-description">
-              Select a dataset + model and start a workload (dummy flow).
+              Select a dataset + model and start a workload.
             </div>
           </button>
 
@@ -144,7 +167,7 @@ export default function UserDashboard() {
             >
               <div className="action-title">Set Policies</div>
               <div className="action-description">
-                Set access policies for datasets and applications (dummy flow).
+                Set access policies for datasets and applications.
               </div>
             </button>
           ) : null}
@@ -164,7 +187,7 @@ export default function UserDashboard() {
             onClick={() => myRequestsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
           >
             <div className="action-title">View My Requests</div>
-            <div className="action-description">Track pending/approved/rejected status.</div>
+            <div className="action-description">Track pending / approved / rejected status.</div>
           </button>
         </div>
       </div>
@@ -189,18 +212,10 @@ export default function UserDashboard() {
             <label htmlFor="role">Role</label>
             <select
               id="role"
+              className="select"
               value={roleToRequest}
               onChange={e => setRoleToRequest(e.target.value)}
               disabled={actionLoading}
-              style={{
-                width: "100%",
-                padding: "12px 14px",
-                border: "1px solid var(--border-color)",
-                borderRadius: "8px",
-                fontSize: "14px",
-                color: "var(--text-dark)",
-                backgroundColor: "var(--bg-white)",
-              }}
             >
               <option value="application-provider">application-provider</option>
               <option value="data-provider">data-provider</option>
