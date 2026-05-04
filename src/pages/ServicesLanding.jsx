@@ -3,9 +3,33 @@ import { EyeOff, Network, Lock, BarChart2, ArrowRight, CheckCircle } from "lucid
 
 const SERVICE_DEFS = [
   {
-    title: "Anonymization",
+    title: "SPIDEr",
     description:
-      "Mask or remove personally identifiable attributes from your datasets using state-of-the-art de-identification techniques.",
+      "Secure Pipeline for Information De-identification with Encryption. Connect, discover and anonymise with a secure platform for real-world public-good data workflows",
+    icon: <EyeOff size={22} />,
+    iconClass: "service-icon--blue",
+    cardClass: "service-card--blue",
+    roleRequired: false,
+    onClick: () => {
+      const token = localStorage.getItem("access_token");
+      const expiresIn = localStorage.getItem("expires_in") || "";
+      const refreshToken = localStorage.getItem("refresh_token") || "";
+
+      const params = new URLSearchParams();
+      if (token) params.set("access_token", token);
+      if (expiresIn) params.set("expires_in", String(expiresIn));
+      if (refreshToken) params.set("refresh_token", refreshToken);
+
+      const hash = params.toString();
+      window.location.assign(
+        hash ? `https://spider.p3dx.iudx.org.in/#${hash}` : "https://spider.p3dx.iudx.org.in/"
+      );
+    },
+  },
+  {
+    title: "Sythetic Data Generation using Spider",
+    description:
+      "Generate synthetic datasets that preserve statistical properties while ensuring privacy.",
     icon: <EyeOff size={22} />,
     iconClass: "service-icon--blue",
     cardClass: "service-card--blue",
@@ -45,16 +69,6 @@ const SERVICE_DEFS = [
     cardClass: "service-card--teal",
     roleRequired: true,
     navigate: "/app/services/smpc",
-  },
-  {
-    title: "Differential Privacy",
-    description:
-      "Query datasets with mathematical privacy guarantees that ensure individual records cannot be re-identified.",
-    icon: <BarChart2 size={22} />,
-    iconClass: "service-icon--amber",
-    cardClass: "service-card--amber",
-    roleRequired: true,
-    navigate: "/app/services/dp",
   },
 ];
 
