@@ -134,7 +134,7 @@ See p3dx-aaa `Setup.md §9.6–9.7` for the full nginx config and directory perm
 
 ## Spider SSO Handoff
 
-When a user opens the Anonymisation service tile, the UI redirects to Spider and passes the Keycloak tokens via URL hash:
+When a user opens a Spider service tile (SPIDEr or Synthetic Data Generation) on the Services landing page, the UI redirects to Spider and passes the Keycloak tokens via URL hash:
 
 ```
 https://spider.p3dx.iudx.org.in/#access_token=...&refresh_token=...&expires_in=...
