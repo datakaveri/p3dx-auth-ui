@@ -3,6 +3,8 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import AppShell from "./pages/AppShell";
 import UserDashboard from "./pages/UserDashboard";
+import FederatedLearningDashboard from "./pages/FederatedLearningDashboard";
+import FederatedLearning from "./pages/FederatedLearning";
 import AdminDashboard from "./pages/AdminDashboard";
 import ServicesLanding from "./pages/ServicesLanding";
 import AnonService from "./pages/AnonService";
@@ -26,7 +28,8 @@ export const router = createBrowserRouter([
       { index: true, element: <div /> },
       { path: "services", element: <ServicesLanding /> },
       { path: "services/anon", element: <AnonService /> },
-      { path: "services/fl", element: <UserDashboard /> },
+      { path: "services/fl", element: <FederatedLearningDashboard /> },
+      { path: "services/fl/federated-learning", element: <FederatedLearning /> },
       { path: "services/smpc", element: <UserDashboard /> },
       { path: "services/dp", element: <UserDashboard /> },
       { path: "services/policies", element: <PolicyForm /> },

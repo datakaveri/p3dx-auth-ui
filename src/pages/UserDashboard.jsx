@@ -23,6 +23,11 @@ export default function UserDashboard() {
   const DISPLAY_ROLES = ["user", "application-provider", "data-provider"];
   const displayRoles = roles.filter(r => DISPLAY_ROLES.includes(r));
 
+  // "My Role Requests" is fetched from a backend list shared across services
+  // (FL, SMPC, DP); scope it to this dashboard's own roles so FL's
+  // output-owner / fl-data-provider requests don't show up here.
+  const myDisplayedRequests = myRequests.filter(r => DISPLAY_ROLES.includes(r.role_name));
+
   const serviceLabel = useMemo(() => {
     const path = location.pathname;
     if (path.includes("/services/fl")) return "Federated Learning";
@@ -67,8 +72,8 @@ export default function UserDashboard() {
     (roleToRequest === "application-provider" && hasApplicationProvider) ||
     (roleToRequest === "data-provider" && hasDataProvider);
 
-  const pendingCount = myRequests.filter(r => String(r.status || "").toUpperCase() === "PENDING").length;
-  const approvedCount = myRequests.filter(r => String(r.status || "").toUpperCase() === "APPROVED").length;
+  const pendingCount = myDisplayedRequests.filter(r => String(r.status || "").toUpperCase() === "PENDING").length;
+  const approvedCount = myDisplayedRequests.filter(r => String(r.status || "").toUpperCase() === "APPROVED").length;
 
   return (
     <div>
@@ -271,12 +276,12 @@ export default function UserDashboard() {
                   <tr>
                     <td colSpan={3} className="muted">Loading...</td>
                   </tr>
-                ) : myRequests.length === 0 ? (
+                ) : myDisplayedRequests.length === 0 ? (
                   <tr>
                     <td colSpan={3} className="muted">No requests yet</td>
                   </tr>
                 ) : (
-                  myRequests.map(r => (
+                  myDisplayedRequests.map(r => (
                     <tr key={r.request_id}>
                       <td>{r.role_name}</td>
                       <td>

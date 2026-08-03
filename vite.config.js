@@ -8,5 +8,9 @@ export default defineConfig({
     port: 5174,
     host: true,
     open: false,
+    proxy: {
+      '/api': 'http://localhost:8084',
+      '/apd': { target: 'http://localhost:8091', rewrite: (path) => path.replace(/^\/apd/, '') },
+    },
   },
 })
