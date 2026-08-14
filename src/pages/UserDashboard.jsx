@@ -1,20 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
-import { createRoleRequest, listMyRoleRequests } from "../api/roleRequests";
 
 export default function UserDashboard() {
-  const { user, token } = useOutletContext();
+  const { user } = useOutletContext();
   const navigate = useNavigate();
   const location = useLocation();
-
-  const roleRequestRef = useRef(null);
-  const myRequestsRef = useRef(null);
-
-  const [myRequests, setMyRequests] = useState([]);
-  const [roleToRequest, setRoleToRequest] = useState("application-provider");
-  const [actionError, setActionError] = useState(null);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [myLoading, setMyLoading] = useState(false);
 
   const roles = useMemo(() => user?.roles || [], [user]);
   const hasApplicationProvider = roles.includes("application-provider");
@@ -23,11 +13,6 @@ export default function UserDashboard() {
   const DISPLAY_ROLES = ["user", "application-provider", "data-provider"];
   const displayRoles = roles.filter(r => DISPLAY_ROLES.includes(r));
 
-  // "My Role Requests" is fetched from a backend list shared across services
-  // (FL, SMPC, DP); scope it to this dashboard's own roles so FL's
-  // output-owner / fl-data-provider requests don't show up here.
-  const myDisplayedRequests = myRequests.filter(r => DISPLAY_ROLES.includes(r.role_name));
-
   const serviceLabel = useMemo(() => {
     const path = location.pathname;
     if (path.includes("/services/fl")) return "Federated Learning";
@@ -35,45 +20,6 @@ export default function UserDashboard() {
     if (path.includes("/services/dp")) return "Differential Privacy";
     return "Service";
   }, [location.pathname]);
-
-  const formatDateTime = value => {
-    if (!value) return "";
-    const date = typeof value === "number" ? new Date(value) : new Date(String(value));
-    if (Number.isNaN(date.getTime())) return "";
-    return date.toLocaleString();
-  };
-
-  const statusBadgeClass = status => {
-    const s = String(status || "").toUpperCase();
-    if (s === "APPROVED") return "badge badge-success";
-    if (s === "REJECTED") return "badge badge-error";
-    if (s === "PENDING") return "badge badge-warning badge-pulse";
-    return "badge";
-  };
-
-  const refreshMy = async () => {
-    if (!token) return;
-    setMyLoading(true);
-    try {
-      const res = await listMyRoleRequests(token);
-      if (res?.status === "SUCCESS") {
-        setMyRequests(Array.isArray(res.requests) ? res.requests : []);
-      }
-    } finally {
-      setMyLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    refreshMy();
-  }, []);
-
-  const shouldDisableRequest =
-    (roleToRequest === "application-provider" && hasApplicationProvider) ||
-    (roleToRequest === "data-provider" && hasDataProvider);
-
-  const pendingCount = myDisplayedRequests.filter(r => String(r.status || "").toUpperCase() === "PENDING").length;
-  const approvedCount = myDisplayedRequests.filter(r => String(r.status || "").toUpperCase() === "APPROVED").length;
 
   return (
     <div>
@@ -101,14 +47,6 @@ export default function UserDashboard() {
         <div className="stat-card">
           <div className="stat-card__label">Roles</div>
           <div className="stat-card__value stat-card__value--blue">{displayRoles.length}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-card__label">Pending Requests</div>
-          <div className="stat-card__value stat-card__value--amber">{pendingCount}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-card__label">Approved</div>
-          <div className="stat-card__value stat-card__value--green">{approvedCount}</div>
         </div>
       </div>
 
@@ -176,126 +114,24 @@ export default function UserDashboard() {
               </div>
             </button>
           ) : null}
+        </div>
+      </div>
 
+      {!hasApplicationProvider && !hasDataProvider && (
+        <div className="card" style={{ marginBottom: "18px" }}>
+          <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
+            You need the <strong>application-provider</strong> or <strong>data-provider</strong> role for full access to this service.
+          </div>
           <button
-            className="action-card"
+            className="btn btn-secondary"
             type="button"
-            onClick={() => roleRequestRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            style={{ width: "auto", marginTop: "10px" }}
+            onClick={() => navigate("/app/role-request")}
           >
-            <div className="action-title">Request Access</div>
-            <div className="action-description">Request application-provider or data-provider access.</div>
-          </button>
-
-          <button
-            className="action-card"
-            type="button"
-            onClick={() => myRequestsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-          >
-            <div className="action-title">View My Requests</div>
-            <div className="action-description">Track pending / approved / rejected status.</div>
+            Request Access
           </button>
         </div>
-      </div>
-
-      <div ref={roleRequestRef} style={{ marginTop: "20px" }}>
-        <h3 className="section-title">Request Access</h3>
-
-        {actionError ? <div className="error-message">{actionError}</div> : null}
-
-        {(hasApplicationProvider || hasDataProvider) ? (
-          <div className="info-banner">
-            You already have:
-            {hasApplicationProvider ? " application-provider" : ""}
-            {hasApplicationProvider && hasDataProvider ? "," : ""}
-            {hasDataProvider ? " data-provider" : ""}
-            . You can still request the other role.
-          </div>
-        ) : null}
-
-        <div className="card">
-          <div className="form-group" style={{ marginBottom: "14px" }}>
-            <label htmlFor="role">Role</label>
-            <select
-              id="role"
-              className="select"
-              value={roleToRequest}
-              onChange={e => setRoleToRequest(e.target.value)}
-              disabled={actionLoading}
-            >
-              <option value="application-provider">application-provider</option>
-              <option value="data-provider">data-provider</option>
-            </select>
-          </div>
-
-          {shouldDisableRequest ? (
-            <div className="info-banner" style={{ marginBottom: "14px" }}>
-              You already have the selected role.
-            </div>
-          ) : null}
-
-          <button
-            className="btn btn-primary"
-            onClick={async () => {
-              if (shouldDisableRequest) return;
-              setActionError(null);
-              setActionLoading(true);
-              try {
-                const res = await createRoleRequest(token, roleToRequest);
-                if (res?.status !== "SUCCESS") {
-                  setActionError(res?.error || "Request failed");
-                } else {
-                  await refreshMy();
-                }
-              } catch (err) {
-                setActionError(err?.message || "Request failed");
-              } finally {
-                setActionLoading(false);
-              }
-            }}
-            disabled={actionLoading || shouldDisableRequest}
-          >
-            {actionLoading ? "Submitting..." : "Submit Request"}
-          </button>
-        </div>
-      </div>
-
-      <div ref={myRequestsRef} style={{ marginTop: "22px" }}>
-        <h3 className="section-title">My Role Requests</h3>
-        <div className="card" style={{ padding: 0 }}>
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Role</th>
-                  <th>Status</th>
-                  <th>Requested At</th>
-                </tr>
-              </thead>
-              <tbody>
-                {myLoading ? (
-                  <tr>
-                    <td colSpan={3} className="muted">Loading...</td>
-                  </tr>
-                ) : myDisplayedRequests.length === 0 ? (
-                  <tr>
-                    <td colSpan={3} className="muted">No requests yet</td>
-                  </tr>
-                ) : (
-                  myDisplayedRequests.map(r => (
-                    <tr key={r.request_id}>
-                      <td>{r.role_name}</td>
-                      <td>
-                        <span className={statusBadgeClass(r.status)}>{r.status}</span>
-                      </td>
-                      <td>{formatDateTime(r.created_at || r.created_at_iso)}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

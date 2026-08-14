@@ -4,6 +4,7 @@ import Register from "./pages/Register";
 import AppShell from "./pages/AppShell";
 import UserDashboard from "./pages/UserDashboard";
 import FederatedLearningDashboard from "./pages/FederatedLearningDashboard";
+import RoleRequest from "./pages/RoleRequest";
 import FederatedLearning from "./pages/FederatedLearning";
 import AdminDashboard from "./pages/AdminDashboard";
 import ServicesLanding from "./pages/ServicesLanding";
@@ -26,6 +27,7 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <div /> },
+      { path: "role-request", element: <RoleRequest /> },
       { path: "services", element: <ServicesLanding /> },
       { path: "services/anon", element: <AnonService /> },
       { path: "services/fl", element: <FederatedLearningDashboard /> },
