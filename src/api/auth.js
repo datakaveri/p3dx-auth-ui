@@ -42,6 +42,19 @@ export async function loginUser(payload) {
   return data;
 }
 
+export async function refreshAccessToken(refreshToken) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/refresh-token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Refresh failed");
+  }
+  return data;
+}
+
 export async function getMe(token) {
   const res = await fetch(`${BACKEND_URL}/p3dx/me`, {
     headers: {
@@ -51,6 +64,112 @@ export async function getMe(token) {
   const data = await parseJsonSafe(res);
   if (!res.ok || data?.status === "FAILED") {
     throw buildHttpError(res, data, "Unauthorized");
+  }
+  return data;
+}
+
+export async function notifyProviders(selectedProviders, requestedProviders, outputOwnerId, submissionId, token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/notify-providers`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      selected_providers: selectedProviders,
+      requested_providers: requestedProviders,
+      output_owner_id: outputOwnerId,
+      submission_id: submissionId,
+      notified_at: new Date().toISOString(),
+    }),
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to notify providers");
+  }
+  return data;
+}
+
+export async function getMyNotifications(token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/my-notifications`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to fetch notifications");
+  }
+  return data;
+}
+
+export async function markNotificationRead(notificationId, token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/notifications/${notificationId}/read`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to mark notification as read");
+  }
+  return data;
+}
+
+// A selected provider answers a participation request. response is
+// "accepted" | "declined"; message is an optional reason for the output owner.
+export async function respondToNotification(notificationId, response, message, token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/notifications/${notificationId}/respond`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ response, message }),
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to send participation response");
+  }
+  return data;
+}
+
+// Output owner: send the final participant roster (who's willing + who was
+// selected) to the selected providers, after the consent round.
+export async function notifyRoster(selectedProviders, willingProviders, outputOwnerId, submissionId, token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/notify-roster`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      selected_providers: selectedProviders,
+      willing_providers: willingProviders,
+      output_owner_id: outputOwnerId,
+      submission_id: submissionId,
+    }),
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to send roster");
+  }
+  return data;
+}
+
+// Output owner: fetch the participation responses for notifications this user
+// sent (each selected provider's accepted/declined status + reason).
+export async function getNotificationResponses(token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/notification-responses`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store", // always fetch fresh — the poll must reflect new answers
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to fetch participation responses");
   }
   return data;
 }

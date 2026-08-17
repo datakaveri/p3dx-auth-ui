@@ -7,11 +7,11 @@ function authHeaders(token) {
   };
 }
 
-export async function createRoleRequest(token, role) {
+export async function createRoleRequest(token, role, autoApprove = false) {
   const res = await fetch(`${BACKEND_URL}/p3dx/role-requests`, {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify({ role }),
+    body: JSON.stringify({ role, auto_approve: autoApprove }),
   });
   return res.json();
 }

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import { getMe } from "../api/auth";
+import { getMe, refreshAccessToken } from "../api/auth";
 
 export default function AppShell() {
   const [user, setUser] = useState(null);
@@ -37,12 +37,44 @@ export default function AppShell() {
       });
   }, [token, navigate]);
 
+  // Roles live in the access token's claims, so a role granted after login
+  // (e.g. auto-approved on request) won't show up until the token is
+  // reissued. Exchange the refresh token for a fresh one, then re-fetch the
+  // profile, so newly-granted roles appear without a full re-login.
+  const refreshUser = useCallback(async () => {
+    const refreshToken = localStorage.getItem("refresh_token");
+    let freshToken = localStorage.getItem("access_token");
+
+    if (refreshToken) {
+      try {
+        const tokenRes = await refreshAccessToken(refreshToken);
+        if (tokenRes?.access_token) {
+          freshToken = tokenRes.access_token;
+          localStorage.setItem("access_token", tokenRes.access_token);
+          if (tokenRes.refresh_token) localStorage.setItem("refresh_token", tokenRes.refresh_token);
+        }
+      } catch (err) {
+        console.warn("Failed to refresh access token:", err);
+      }
+    }
+
+    const res = await getMe(freshToken);
+    if (res?.status === "SUCCESS") {
+      setUser(res.user);
+    }
+    return res?.user ?? null;
+  }, []);
+
+  // Non-admins land on the role-request page first after login — a mandatory
+  // first stop before the services list. There is no per-service gating
+  // beyond this: once here, "Continue to Services" takes them to a plain,
+  // ungated services page.
   useEffect(() => {
     if (!user) return;
 
     const path = location.pathname;
     if (path === "/app" || path === "/app/") {
-      navigate(isAdmin ? "/app/admin" : "/app/services", { replace: true });
+      navigate(isAdmin ? "/app/admin" : "/app/role-request", { replace: true });
     }
   }, [user, isAdmin, location.pathname, navigate]);
 
@@ -50,7 +82,7 @@ export default function AppShell() {
     if (!user) return;
 
     const path = location.pathname;
-    if (isAdmin && path.startsWith("/app/services")) {
+    if (isAdmin && (path.startsWith("/app/services") || path.startsWith("/app/role-request"))) {
       navigate("/app/admin", { replace: true });
       return;
     }
@@ -104,7 +136,7 @@ export default function AppShell() {
       </div>
 
       <div key={location.pathname} className="page-enter">
-        <Outlet context={{ user, token, isAdmin }} />
+        <Outlet context={{ user, token, isAdmin, refreshUser }} />
       </div>
     </div>
   );
