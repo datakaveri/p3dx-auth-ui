@@ -65,12 +65,16 @@ export default function AppShell() {
     return res?.user ?? null;
   }, []);
 
+  // Non-admins land on the role-request page first after login — a mandatory
+  // first stop before the services list. There is no per-service gating
+  // beyond this: once here, "Continue to Services" takes them to a plain,
+  // ungated services page.
   useEffect(() => {
     if (!user) return;
 
     const path = location.pathname;
     if (path === "/app" || path === "/app/") {
-      navigate(isAdmin ? "/app/admin" : "/app/services", { replace: true });
+      navigate(isAdmin ? "/app/admin" : "/app/role-request", { replace: true });
     }
   }, [user, isAdmin, location.pathname, navigate]);
 
@@ -78,7 +82,7 @@ export default function AppShell() {
     if (!user) return;
 
     const path = location.pathname;
-    if (isAdmin && path.startsWith("/app/services")) {
+    if (isAdmin && (path.startsWith("/app/services") || path.startsWith("/app/role-request"))) {
       navigate("/app/admin", { replace: true });
       return;
     }

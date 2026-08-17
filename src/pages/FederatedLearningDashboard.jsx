@@ -1,26 +1,17 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
-import { createRoleRequest, listMyRoleRequests } from "../api/roleRequests";
 import { DataOwnerForm } from "../components/RoleForms";
 import { getMyNotifications, markNotificationRead, respondToNotification } from "../api/auth";
 import { BACKEND_URL } from "../config";
 
 export default function FederatedLearningDashboard() {
-  const { user, token, refreshUser } = useOutletContext();
+  const { user, token } = useOutletContext();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const roleRequestRef = useRef(null);
-  const myRequestsRef = useRef(null);
   const wsRef = useRef(null);
 
-  const [myRequests, setMyRequests] = useState([]);
-  const [roleToRequest, setRoleToRequest] = useState("output-owner");
   const [actionError, setActionError] = useState(null);
-  const [actionSuccess, setActionSuccess] = useState(null);
-  const [activatedFormRole, setActivatedFormRole] = useState(null);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [myLoading, setMyLoading] = useState(false);
 
   // Notifications for data providers
   const [notifications, setNotifications] = useState([]);
@@ -38,12 +29,6 @@ export default function FederatedLearningDashboard() {
   // from SMPC's data-provider role — the two flows must not grant each other.
   const hasDataProvider = roles.includes("fl-data-provider");
 
-  const requestedDataProvider = myRequests.some(r => r.role_name === "fl-data-provider");
-  const requestedOutputOwner = myRequests.some(r => r.role_name === "output-owner");
-
-  const showDataOwnerForm = hasDataProvider || requestedDataProvider;
-  const showOutputOwnerForm = hasOutputOwner || requestedOutputOwner;
-
   const serviceLabel = useMemo(() => {
     const path = location.pathname;
     if (path.includes("/services/fl")) return "Federated Learning";
@@ -51,34 +36,6 @@ export default function FederatedLearningDashboard() {
     if (path.includes("/services/dp")) return "Differential Privacy";
     return "Service";
   }, [location.pathname]);
-
-  const formatDateTime = value => {
-    if (!value) return "";
-    const date = typeof value === "number" ? new Date(value) : new Date(String(value));
-    if (Number.isNaN(date.getTime())) return "";
-    return date.toLocaleString();
-  };
-
-  const statusBadgeClass = status => {
-    const s = String(status || "").toUpperCase();
-    if (s === "APPROVED") return "badge badge-success";
-    if (s === "REJECTED") return "badge badge-error";
-    if (s === "PENDING") return "badge badge-warning";
-    return "badge";
-  };
-
-  const refreshMy = async () => {
-    if (!token) return;
-    setMyLoading(true);
-    try {
-      const res = await listMyRoleRequests(token);
-      if (res?.status === "SUCCESS") {
-        setMyRequests(Array.isArray(res.requests) ? res.requests : []);
-      }
-    } finally {
-      setMyLoading(false);
-    }
-  };
 
   // Fetch notifications for data providers
   const fetchNotifications = async () => {
@@ -146,10 +103,6 @@ export default function FederatedLearningDashboard() {
     }
   };
 
-  useEffect(() => {
-    refreshMy();
-  }, []);
-
   // Real-time notifications via Server-Sent Events. The server sends a
   // {type:'notification'} nudge when a notification is created for this user;
   // we then refetch the canonical list, so the dashboard updates with no manual
@@ -190,10 +143,6 @@ export default function FederatedLearningDashboard() {
     };
   }, [token, hasDataProvider, user?.username]);
 
-  const shouldDisableRequest =
-    (roleToRequest === "output-owner" && hasOutputOwner) ||
-    (roleToRequest === "fl-data-provider" && hasDataProvider);
-
   return (
     <div>
       <div className="page-header">
@@ -214,6 +163,8 @@ export default function FederatedLearningDashboard() {
           </button>
         </div>
       </div>
+
+      {actionError ? <div className="error-message" style={{ marginBottom: "18px" }}>{actionError}</div> : null}
 
       <div className="card" style={{ marginBottom: "18px" }}>
         <div className="grid">
@@ -243,6 +194,41 @@ export default function FederatedLearningDashboard() {
           </div>
         </div>
       </div>
+
+      {hasDataProvider && <DataOwnerForm user={user} token={token} />}
+
+      {hasOutputOwner && (
+        <div className="card" style={{ marginBottom: "18px" }}>
+          <h3 className="section-title" style={{ marginTop: 0 }}>Output Owner</h3>
+          <div style={{ color: "var(--text-light)", fontSize: "14px", marginBottom: "12px" }}>
+            Configure a federated learning session and select the data providers to invite.
+          </div>
+          <button
+            className="btn btn-primary"
+            type="button"
+            style={{ width: "auto" }}
+            onClick={() => navigate("/app/services/fl/federated-learning")}
+          >
+            Open Federated Learning Configuration
+          </button>
+        </div>
+      )}
+
+      {!hasDataProvider && !hasOutputOwner && (
+        <div className="card" style={{ marginBottom: "18px" }}>
+          <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
+            You need the <strong>output-owner</strong> or <strong>data-provider</strong> role to use Federated Learning.
+          </div>
+          <button
+            className="btn btn-secondary"
+            type="button"
+            style={{ width: "auto", marginTop: "10px" }}
+            onClick={() => navigate("/app/role-request")}
+          >
+            Request Access
+          </button>
+        </div>
+      )}
 
       {/* Notifications Section for Data Providers */}
       {hasDataProvider && (
@@ -545,120 +531,8 @@ export default function FederatedLearningDashboard() {
               </div>
             </button>
           ) : null}
-
-          <button
-            className="action-card"
-            type="button"
-            onClick={() => roleRequestRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-          >
-            <div className="action-title">Request Access</div>
-            <div className="action-description">Request output-owner or data-provider access.</div>
-          </button>
-
-
         </div>
       </div>
-
-      <div ref={roleRequestRef} style={{ marginTop: "20px" }}>
-        <h3 className="section-title">Request Access</h3>
-
-        {actionError ? <div className="error-message">{actionError}</div> : null}
-        {actionSuccess ? <div className="info-banner" style={{backgroundColor: "var(--success-color, #27ae60)", color: "white", padding: "12px", borderRadius: "8px", marginBottom: "16px"}}>{actionSuccess}</div> : null}
-
-        <div className="card">
-          <div className="form-group" style={{ marginBottom: "14px" }}>
-            <label htmlFor="role">Role</label>
-            <select
-              id="role"
-              value={roleToRequest}
-              onChange={e => {
-              setRoleToRequest(e.target.value);
-              setActionError(null);
-              setActionSuccess(null);
-              setActivatedFormRole(null);
-            }}
-              disabled={actionLoading}
-              style={{
-                width: "100%",
-                padding: "12px 14px",
-                border: "1px solid var(--border-color)",
-                borderRadius: "8px",
-                fontSize: "14px",
-                color: "var(--text-dark)",
-                backgroundColor: "var(--bg-white)",
-              }}
-            >
-              <option value="output-owner">output-owner</option>
-              <option value="fl-data-provider">data-provider</option>
-            </select>
-          </div>
-
-          <button
-            className="btn btn-primary"
-            onClick={async () => {
-              setActionError(null);
-              setActionSuccess(null);
-              // fl-data-provider is FL's own realm role — display it to the user as
-              // "data-provider" (its SMPC counterpart is a separate role/approval flow).
-              const displayRole = roleToRequest === 'fl-data-provider' ? 'data-provider' : roleToRequest;
-              if (shouldDisableRequest) {
-                setActionSuccess(`You have been assigned to the role ${displayRole}.`);
-                // Show Data Provider form if data-provider
-                if (roleToRequest === 'fl-data-provider') {
-                  console.log('[DEBUG] Setting activatedFormRole to fl-data-provider (existing role)');
-                  setActivatedFormRole('fl-data-provider');
-                }
-                // Redirect to Federated Learning page if output-owner
-                if (roleToRequest === 'output-owner') {
-                  navigate('/app/services/fl/federated-learning');
-                }
-                return;
-              }
-              setActionLoading(true);
-              try {
-                const res = await createRoleRequest(token, roleToRequest, true);
-                if (res?.status !== "SUCCESS") {
-                  setActionError(res?.error || "Request failed");
-                } else {
-                  await refreshMy();
-                  // The role was just auto-approved and granted in Keycloak, but the
-                  // current access token still carries the old (pre-grant) role
-                  // claims — refresh it so hasOutputOwner/hasDataProvider (and the
-                  // FL page's own role check after navigating) see it immediately.
-                  await refreshUser?.();
-                  setActionSuccess(`You have been assigned to the role ${displayRole}.`);
-                  // Show Data Provider form if data-provider
-                  if (roleToRequest === 'fl-data-provider') {
-                    console.log('[DEBUG] Setting activatedFormRole to fl-data-provider (new role)');
-                    setActivatedFormRole('fl-data-provider');
-                  }
-                  // Redirect to Federated Learning page if output-owner
-                  if (roleToRequest === 'output-owner') {
-                    navigate('/app/services/fl/federated-learning');
-                  }
-                }
-              } catch (err) {
-                setActionError(err?.message || "Request failed");
-              } finally {
-                setActionLoading(false);
-              }
-            }}
-            disabled={actionLoading}
-          >
-            {actionLoading ? "Submitting..." : "Submit Request"}
-          </button>
-        </div>
-      </div>
-
-
-      {console.log('[DEBUG] activatedFormRole current value:', activatedFormRole)}
-      {activatedFormRole === "fl-data-provider" && (
-          <>
-            {console.log('[DEBUG] Rendering DataOwnerForm, activatedFormRole:', activatedFormRole)}
-            <DataOwnerForm user={user} token={token} />
-          </>
-      )}
-
     </div>
   );
 }
