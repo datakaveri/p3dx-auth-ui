@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
+import { BACKEND_URL } from '../config';
 
-const DATA_PROVIDER_FORM_URL = "/api/v1/data-provider-forms";
+const DATA_PROVIDER_FORM_URL = `${BACKEND_URL}/p3dx/data-provider-forms`;
 
 // Data Provider form submits to governance layer
 async function submitDataOwnerFormToBackend(payload, token) {
@@ -19,6 +20,7 @@ export function DataOwnerForm({ user, token }) {
   const [formData, setFormData] = useState({
     form_id: 'dataform-001',
     data_owner_id: user?.username || '',
+    dataset_name: '',
     RAM: 16,
     ram_usage: '',
     memory_mb: 8192,
@@ -59,6 +61,10 @@ export function DataOwnerForm({ user, token }) {
         <div className="form-group">
           <label>Data Owner ID</label>
           <input value={formData.data_owner_id} onChange={(e) => setFormData({...formData, data_owner_id: e.target.value})} />
+        </div>
+        <div className="form-group">
+          <label>Dataset Name</label>
+          <input value={formData.dataset_name} onChange={(e) => setFormData({...formData, dataset_name: e.target.value})} />
         </div>
         <div className="form-group">
           <label>RAM (MB)</label>

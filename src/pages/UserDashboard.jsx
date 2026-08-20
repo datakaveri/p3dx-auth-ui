@@ -9,6 +9,7 @@ export default function UserDashboard() {
   const roles = useMemo(() => user?.roles || [], [user]);
   const hasApplicationProvider = roles.includes("application-provider");
   const hasDataProvider = roles.includes("data-provider");
+  const isSMPC = location.pathname.includes("/services/smpc");
 
   const DISPLAY_ROLES = ["user", "application-provider", "data-provider"];
   const displayRoles = roles.filter(r => DISPLAY_ROLES.includes(r));
@@ -116,6 +117,23 @@ export default function UserDashboard() {
           ) : null}
         </div>
       </div>
+
+      {isSMPC ? (
+        <div style={{ marginBottom: "18px" }}>
+          <button
+            className="btn btn-primary"
+            type="button"
+            style={{ width: "auto" }}
+            onClick={() =>
+              navigate("/app/services/run", {
+                state: { returnTo: location.pathname },
+              })
+            }
+          >
+            Start SMPC
+          </button>
+        </div>
+      ) : null}
 
       {!hasApplicationProvider && !hasDataProvider && (
         <div className="card" style={{ marginBottom: "18px" }}>

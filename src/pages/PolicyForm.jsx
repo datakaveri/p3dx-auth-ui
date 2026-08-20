@@ -84,7 +84,7 @@ export default function PolicyForm() {
       await submitPolicy(token, payload);
       window.setTimeout(() => {
         navigate(returnTo, { replace: true });
-      }, 700);
+      }, 1800);
     } catch (err) {
       setSubmitted(false);
       setError(err?.message || String(err));
@@ -114,7 +114,7 @@ export default function PolicyForm() {
       </div>
 
       {error ? <div className="error-message">{error}</div> : null}
-      {submitted ? <div className="info-banner">Policy submitted. Redirecting...</div> : null}
+      {submitted ? <div className="info-banner">Policy stored in APD successfully. Redirecting...</div> : null}
 
       <div className="card">
         <form onSubmit={onSubmit}>

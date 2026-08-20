@@ -25,9 +25,7 @@ export default function FederatedLearningDashboard() {
 
   const roles = useMemo(() => user?.roles || [], [user]);
   const hasOutputOwner = roles.includes("output-owner");
-  // FL's data-provider access is its own realm role (fl-data-provider), distinct
-  // from SMPC's data-provider role — the two flows must not grant each other.
-  const hasDataProvider = roles.includes("fl-data-provider");
+  const hasDataProvider = roles.includes("data-provider");
 
   const serviceLabel = useMemo(() => {
     const path = location.pathname;
