@@ -1564,6 +1564,47 @@ textarea.input {
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
 }
 
+/* Simple dataset list — real, registered dataset names have no catalogue
+   metadata (category/description/size/etc.) yet, so these render as plain
+   selectable rows rather than the richer .cat-card used for applications. */
+.cat-simple-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cat-simple-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: white;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: var(--transition);
+  text-align: left;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+}
+
+.cat-simple-item:hover {
+  box-shadow: var(--shadow-md);
+  border-color: rgba(148, 163, 184, 0.5);
+}
+
+.cat-simple-item--selected {
+  border-color: rgba(59, 130, 246, 0.5);
+  background: rgba(59, 130, 246, 0.03);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.cat-simple-item__name {
+  flex: 1;
+  font-weight: 500;
+}
+
 .cat-card__body {
   display: flex;
   align-items: flex-start;

@@ -497,22 +497,6 @@ export default function FederatedLearningDashboard() {
       <div style={{ marginBottom: "18px" }}>
         <h3 className="section-title">Actions</h3>
         <div className="action-grid">
-          
-          <button
-            className="action-card"
-            type="button"
-            onClick={() =>
-              navigate("/app/services/run", {
-                state: { returnTo: location.pathname },
-              })
-            }
-          >
-            <div className="action-title">Run Workload</div>
-            <div className="action-description">
-              Select a dataset + model and start a workload (dummy flow).
-            </div>
-          </button>
-
           {hasDataProvider ? (
             <button
               className="action-card"

@@ -25,13 +25,19 @@ export default function RoleRequest() {
   const [actionLoading, setActionLoading] = useState(false);
   const [myLoading, setMyLoading] = useState(false);
 
-  // Datasets submitted by data providers — pulled from APD. Picking one is
-  // required before Start SMPC is enabled, so users go into an SMPC workload
-  // knowing which dataset it targets, regardless of whether they have any
-  // role granted yet.
+  // Datasets submitted by data providers — pulled from APD. Picking at least
+  // one is required before Continue to Services is enabled, so users move on
+  // knowing which dataset(s) they're working with, regardless of whether
+  // they have any role granted yet.
   const [datasets, setDatasets] = useState([]);
   const [datasetsLoading, setDatasetsLoading] = useState(false);
-  const [selectedDataset, setSelectedDataset] = useState(null);
+  const [selectedDatasets, setSelectedDatasets] = useState([]);
+
+  const toggleDataset = name => {
+    setSelectedDatasets(prev =>
+      prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]
+    );
+  };
 
   const roles = useMemo(() => user?.roles || [], [user]);
   const selectedOption = ROLE_OPTIONS.find(r => r.value === roleToRequest);
@@ -83,9 +89,9 @@ export default function RoleRequest() {
     loadDatasets();
   }, [token]);
 
-  const handleStartSMPC = () => {
-    if (!selectedDataset) return;
-    navigate("/app/services/run", { state: { returnTo: "/app/role-request", dataset: selectedDataset } });
+  const handleContinueToServices = () => {
+    if (selectedDatasets.length === 0) return;
+    navigate("/app/services", { state: { datasets: selectedDatasets } });
   };
 
   const handleSubmit = async () => {
@@ -117,16 +123,6 @@ export default function RoleRequest() {
           <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
             Request a role before using any service. An admin needs to approve it before your access is granted.
           </div>
-        </div>
-        <div className="page-header-actions">
-          <button
-            className="btn btn-primary"
-            style={{ width: "auto" }}
-            type="button"
-            onClick={() => navigate("/app/services")}
-          >
-            Continue to Services
-          </button>
         </div>
       </div>
 
@@ -221,7 +217,7 @@ export default function RoleRequest() {
         <h3 className="section-title">Available Datasets</h3>
         <div className="card">
           <div style={{ color: "var(--text-light)", fontSize: "14px", marginBottom: "12px" }}>
-            Datasets submitted by data providers. Choose one to enable Start SMPC.
+            Datasets submitted by data providers. Choose one or more to continue to services.
           </div>
 
           {datasetsLoading ? (
@@ -239,15 +235,15 @@ export default function RoleRequest() {
                     display: "inline-flex",
                     alignItems: "center",
                     gap: "6px",
-                    border: selectedDataset === name ? "1px solid var(--primary-color)" : undefined,
+                    border: selectedDatasets.includes(name) ? "1px solid var(--primary-color)" : undefined,
                   }}
                 >
                   <input
-                    type="radio"
+                    type="checkbox"
                     name="dataset"
                     value={name}
-                    checked={selectedDataset === name}
-                    onChange={() => setSelectedDataset(name)}
+                    checked={selectedDatasets.includes(name)}
+                    onChange={() => toggleDataset(name)}
                   />
                   {name}
                 </label>
@@ -259,10 +255,10 @@ export default function RoleRequest() {
             className="btn btn-primary"
             type="button"
             style={{ width: "auto" }}
-            disabled={!selectedDataset}
-            onClick={handleStartSMPC}
+            disabled={selectedDatasets.length === 0}
+            onClick={handleContinueToServices}
           >
-            Start SMPC
+            Continue to Services
           </button>
         </div>
       </div>

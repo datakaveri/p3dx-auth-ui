@@ -10,6 +10,9 @@ export default function UserDashboard() {
   const hasApplicationProvider = roles.includes("application-provider");
   const hasDataProvider = roles.includes("data-provider");
   const isSMPC = location.pathname.includes("/services/smpc");
+  // Technique threaded into the workload picker — only FL/SMPC are wired to
+  // contract generation today; /dp has no technique value to pass yet.
+  const technique = isSMPC ? "SMPC" : undefined;
 
   const DISPLAY_ROLES = ["user", "application-provider", "data-provider"];
   const displayRoles = roles.filter(r => DISPLAY_ROLES.includes(r));
@@ -84,21 +87,6 @@ export default function UserDashboard() {
       <div style={{ marginBottom: "18px" }}>
         <h3 className="section-title">Actions</h3>
         <div className="action-grid">
-          <button
-            className="action-card"
-            type="button"
-            onClick={() =>
-              navigate("/app/services/run", {
-                state: { returnTo: location.pathname },
-              })
-            }
-          >
-            <div className="action-title">Run Workload</div>
-            <div className="action-description">
-              Select a dataset + model and start a workload.
-            </div>
-          </button>
-
           {hasDataProvider ? (
             <button
               className="action-card"
@@ -126,7 +114,7 @@ export default function UserDashboard() {
             style={{ width: "auto" }}
             onClick={() =>
               navigate("/app/services/run", {
-                state: { returnTo: location.pathname },
+                state: { returnTo: location.pathname, technique },
               })
             }
           >

@@ -32,6 +32,24 @@ export async function runWorkload(token, { datasetId, applicationId }) {
   return data;
 }
 
+// Builds and returns a contract for display only — does not submit/deploy it.
+export async function previewContract(token, { datasetId, technique }) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/workloads/preview-contract`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ datasetId, technique }),
+  });
+
+  const data = await parseJsonSafe(res);
+
+  if (!res.ok || data?.status === "FAILED") {
+    const msg = data?.error || data?.message || `Contract preview failed (${res.status})`;
+    throw new Error(msg);
+  }
+
+  return data;
+}
+
 export async function getWorkloadResult(token, contractId) {
   const res = await fetch(`${BACKEND_URL}/p3dx/workloads/contracts/${contractId}/result`, {
     method: "GET",
