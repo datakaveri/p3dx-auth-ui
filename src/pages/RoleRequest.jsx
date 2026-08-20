@@ -25,13 +25,11 @@ export default function RoleRequest() {
   const [actionLoading, setActionLoading] = useState(false);
   const [myLoading, setMyLoading] = useState(false);
 
-  // Datasets submitted by data providers — pulled from APD. Picking one is
-  // required before Start SMPC is enabled, so users go into an SMPC workload
-  // knowing which dataset it targets, regardless of whether they have any
-  // role granted yet.
+  // Datasets submitted by data providers — pulled from APD. All of them are
+  // sent along to Continue to Services, regardless of whether the user has
+  // any role granted yet.
   const [datasets, setDatasets] = useState([]);
   const [datasetsLoading, setDatasetsLoading] = useState(false);
-  const [selectedDataset, setSelectedDataset] = useState(null);
 
   const roles = useMemo(() => user?.roles || [], [user]);
   const selectedOption = ROLE_OPTIONS.find(r => r.value === roleToRequest);
@@ -83,9 +81,9 @@ export default function RoleRequest() {
     loadDatasets();
   }, [token]);
 
-  const handleStartSMPC = () => {
-    if (!selectedDataset) return;
-    navigate("/app/services/run", { state: { returnTo: "/app/role-request", dataset: selectedDataset } });
+  const handleContinueToServices = () => {
+    if (datasets.length === 0) return;
+    navigate("/app/services", { state: { datasets } });
   };
 
   const handleSubmit = async () => {
@@ -117,16 +115,6 @@ export default function RoleRequest() {
           <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
             Request a role before using any service. An admin needs to approve it before your access is granted.
           </div>
-        </div>
-        <div className="page-header-actions">
-          <button
-            className="btn btn-primary"
-            style={{ width: "auto" }}
-            type="button"
-            onClick={() => navigate("/app/services")}
-          >
-            Continue to Services
-          </button>
         </div>
       </div>
 
@@ -218,52 +206,21 @@ export default function RoleRequest() {
       </div>
 
       <div style={{ marginTop: "22px" }}>
-        <h3 className="section-title">Available Datasets</h3>
         <div className="card">
-          <div style={{ color: "var(--text-light)", fontSize: "14px", marginBottom: "12px" }}>
-            Datasets submitted by data providers. Choose one to enable Start SMPC.
-          </div>
-
           {datasetsLoading ? (
             <div className="muted">Loading datasets...</div>
           ) : datasets.length === 0 ? (
             <div className="muted">No datasets available yet.</div>
           ) : (
-            <div className="pill-row" style={{ marginBottom: "14px" }}>
-              {datasets.map(name => (
-                <label
-                  key={name}
-                  className="pill"
-                  style={{
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "6px",
-                    border: selectedDataset === name ? "1px solid var(--primary-color)" : undefined,
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="dataset"
-                    value={name}
-                    checked={selectedDataset === name}
-                    onChange={() => setSelectedDataset(name)}
-                  />
-                  {name}
-                </label>
-              ))}
-            </div>
+            <button
+              className="btn btn-primary"
+              type="button"
+              style={{ width: "auto" }}
+              onClick={handleContinueToServices}
+            >
+              Continue to Services
+            </button>
           )}
-
-          <button
-            className="btn btn-primary"
-            type="button"
-            style={{ width: "auto" }}
-            disabled={!selectedDataset}
-            onClick={handleStartSMPC}
-          >
-            Start SMPC
-          </button>
         </div>
       </div>
     </div>
