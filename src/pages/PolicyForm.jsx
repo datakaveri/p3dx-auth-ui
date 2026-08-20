@@ -10,6 +10,9 @@ const ORGS = [
   { id: "university", label: "@university.edu" },
 ];
 
+// Splits a comma-separated string into a trimmed, non-empty string array.
+const toList = value => value.split(",").map(s => s.trim()).filter(Boolean);
+
 export default function PolicyForm() {
   const { user, isAdmin, token } = useOutletContext();
   const roles = useMemo(() => user?.roles || [], [user]);
@@ -28,6 +31,15 @@ export default function PolicyForm() {
     expiresAt: "",
     purpose: "research",
     notes: "",
+    providerId: "",
+    providerEmail: "",
+    isPrivate: false,
+    allowedUsers: "",
+    allowedRoles: "",
+    requiredRoles: "",
+    allowedScopes: "",
+    requiredScopes: "",
+    allowedActions: "",
   });
 
   const [submitted, setSubmitted] = useState(false);
@@ -58,6 +70,9 @@ export default function PolicyForm() {
       policyId: `policy-${typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Date.now()}`,
       itemId: form.dataset,
       issuedBy: user?.username || user?.email || "unknown",
+      provider_id: form.providerId,
+      provider_email: form.providerEmail,
+      is_private: form.isPrivate,
       rules: {
         dataset: {
           id: form.dataset,
@@ -74,6 +89,12 @@ export default function PolicyForm() {
         accessLevel: form.accessLevel,
         purpose: form.purpose,
         notes: form.notes,
+        allowed_users: toList(form.allowedUsers),
+        allowed_roles: toList(form.allowedRoles),
+        required_roles: toList(form.requiredRoles),
+        allowed_scopes: toList(form.allowedScopes),
+        required_scopes: toList(form.requiredScopes),
+        allowed_actions: toList(form.allowedActions),
       },
       ...(form.expiresAt
         ? { expiresAt: new Date(`${form.expiresAt}T00:00:00.000Z`).toISOString() }
@@ -208,7 +229,125 @@ export default function PolicyForm() {
             </select>
           </div>
 
-          <div className="form-group">
+          <div style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px solid var(--border-color)" }}>
+            <div style={{ fontWeight: 600, marginBottom: "8px" }}>Access Rules</div>
+
+            <div className="grid">
+              <div className="form-group">
+                <label>Provider ID</label>
+                <input
+                  className="input"
+                  type="text"
+                  value={form.providerId}
+                  onChange={e => setForm(f => ({ ...f, providerId: e.target.value }))}
+                  placeholder="e.g. provider-123"
+                  disabled={submitted}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Provider Email</label>
+                <input
+                  className="input"
+                  type="email"
+                  value={form.providerEmail}
+                  onChange={e => setForm(f => ({ ...f, providerEmail: e.target.value }))}
+                  placeholder="provider@example.com"
+                  disabled={submitted}
+                />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <input
+                  type="checkbox"
+                  checked={form.isPrivate}
+                  onChange={e => setForm(f => ({ ...f, isPrivate: e.target.checked }))}
+                  disabled={submitted}
+                />
+                Private dataset
+              </label>
+            </div>
+
+            <div className="form-group">
+              <label>Allowed Users (comma-separated)</label>
+              <input
+                className="input"
+                type="text"
+                value={form.allowedUsers}
+                onChange={e => setForm(f => ({ ...f, allowedUsers: e.target.value }))}
+                placeholder="e.g. alice, bob"
+                disabled={submitted}
+              />
+            </div>
+
+            <div className="grid">
+              <div className="form-group">
+                <label>Allowed Roles (comma-separated)</label>
+                <input
+                  className="input"
+                  type="text"
+                  value={form.allowedRoles}
+                  onChange={e => setForm(f => ({ ...f, allowedRoles: e.target.value }))}
+                  placeholder="e.g. data-provider, admin"
+                  disabled={submitted}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Required Roles (comma-separated)</label>
+                <input
+                  className="input"
+                  type="text"
+                  value={form.requiredRoles}
+                  onChange={e => setForm(f => ({ ...f, requiredRoles: e.target.value }))}
+                  placeholder="e.g. output-owner"
+                  disabled={submitted}
+                />
+              </div>
+            </div>
+
+            <div className="grid">
+              <div className="form-group">
+                <label>Allowed Scopes (comma-separated)</label>
+                <input
+                  className="input"
+                  type="text"
+                  value={form.allowedScopes}
+                  onChange={e => setForm(f => ({ ...f, allowedScopes: e.target.value }))}
+                  placeholder="e.g. read, compute"
+                  disabled={submitted}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Required Scopes (comma-separated)</label>
+                <input
+                  className="input"
+                  type="text"
+                  value={form.requiredScopes}
+                  onChange={e => setForm(f => ({ ...f, requiredScopes: e.target.value }))}
+                  placeholder="e.g. openid"
+                  disabled={submitted}
+                />
+              </div>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Allowed Actions (comma-separated)</label>
+              <input
+                className="input"
+                type="text"
+                value={form.allowedActions}
+                onChange={e => setForm(f => ({ ...f, allowedActions: e.target.value }))}
+                placeholder="e.g. compute, aggregate"
+                disabled={submitted}
+              />
+            </div>
+          </div>
+
+          <div className="form-group" style={{ marginTop: "12px" }}>
             <label>Notes</label>
             <textarea
               className="input"
