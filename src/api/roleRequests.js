@@ -35,6 +35,15 @@ export async function listRoleRequests(token, status) {
   return res.json();
 }
 
+export async function listAvailableDatasets(token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/available-datasets`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  return res.json();
+}
+
 export async function decideRoleRequest(token, requestId, decision) {
   const res = await fetch(`${BACKEND_URL}/p3dx/admin/role-requests/${encodeURIComponent(requestId)}/decision`, {
     method: "POST",

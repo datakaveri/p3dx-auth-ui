@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
-import { createRoleRequest, listMyRoleRequests } from "../api/roleRequests";
+import { createRoleRequest, listMyRoleRequests, listAvailableDatasets } from "../api/roleRequests";
 
 // Single "request access" page for every role-gated service (Federated
 // Learning, SMPC, Differential Privacy). AppShell sends non-admins here
@@ -10,9 +10,8 @@ import { createRoleRequest, listMyRoleRequests } from "../api/roleRequests";
 // service page picks up the granted role automatically.
 const ROLE_OPTIONS = [
   { value: "output-owner", label: "Output Owner — Federated Learning" },
-  { value: "fl-data-provider", label: "Data Provider — Federated Learning" },
   { value: "application-provider", label: "Application Provider — SMPC / Differential Privacy" },
-  { value: "data-provider", label: "Data Provider — SMPC / Differential Privacy" },
+  { value: "data-provider", label: "Data Provider — Federated Learning / SMPC / Differential Privacy" },
 ];
 
 export default function RoleRequest() {
@@ -25,6 +24,14 @@ export default function RoleRequest() {
   const [actionSuccess, setActionSuccess] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [myLoading, setMyLoading] = useState(false);
+
+  // Datasets submitted by data providers — pulled from APD. Picking one is
+  // required before Start SMPC is enabled, so users go into an SMPC workload
+  // knowing which dataset it targets, regardless of whether they have any
+  // role granted yet.
+  const [datasets, setDatasets] = useState([]);
+  const [datasetsLoading, setDatasetsLoading] = useState(false);
+  const [selectedDataset, setSelectedDataset] = useState(null);
 
   const roles = useMemo(() => user?.roles || [], [user]);
   const selectedOption = ROLE_OPTIONS.find(r => r.value === roleToRequest);
@@ -61,6 +68,25 @@ export default function RoleRequest() {
   useEffect(() => {
     refreshMy();
   }, []);
+
+  useEffect(() => {
+    const loadDatasets = async () => {
+      if (!token) return;
+      setDatasetsLoading(true);
+      try {
+        const res = await listAvailableDatasets(token);
+        setDatasets(res?.status === "SUCCESS" && Array.isArray(res.datasets) ? res.datasets : []);
+      } finally {
+        setDatasetsLoading(false);
+      }
+    };
+    loadDatasets();
+  }, [token]);
+
+  const handleStartSMPC = () => {
+    if (!selectedDataset) return;
+    navigate("/app/services/run", { state: { returnTo: "/app/role-request", dataset: selectedDataset } });
+  };
 
   const handleSubmit = async () => {
     if (hasSelectedRole) return;
@@ -188,6 +214,56 @@ export default function RoleRequest() {
               </tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      <div style={{ marginTop: "22px" }}>
+        <h3 className="section-title">Available Datasets</h3>
+        <div className="card">
+          <div style={{ color: "var(--text-light)", fontSize: "14px", marginBottom: "12px" }}>
+            Datasets submitted by data providers. Choose one to enable Start SMPC.
+          </div>
+
+          {datasetsLoading ? (
+            <div className="muted">Loading datasets...</div>
+          ) : datasets.length === 0 ? (
+            <div className="muted">No datasets available yet.</div>
+          ) : (
+            <div className="pill-row" style={{ marginBottom: "14px" }}>
+              {datasets.map(name => (
+                <label
+                  key={name}
+                  className="pill"
+                  style={{
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    border: selectedDataset === name ? "1px solid var(--primary-color)" : undefined,
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="dataset"
+                    value={name}
+                    checked={selectedDataset === name}
+                    onChange={() => setSelectedDataset(name)}
+                  />
+                  {name}
+                </label>
+              ))}
+            </div>
+          )}
+
+          <button
+            className="btn btn-primary"
+            type="button"
+            style={{ width: "auto" }}
+            disabled={!selectedDataset}
+            onClick={handleStartSMPC}
+          >
+            Start SMPC
+          </button>
         </div>
       </div>
     </div>

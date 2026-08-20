@@ -3,9 +3,9 @@ import { useNavigate, useOutletContext } from 'react-router-dom';
 import { BACKEND_URL } from '../config';
 import { notifyProviders, getNotificationResponses, notifyRoster } from '../api/auth';
 
-const GOVERNANCE_LAYER_URL = "/api/v1/form-submissions";
-const DATA_PROVIDER_FORM_URL = "/api/v1/data-provider-forms";
-const APD_URL = "/apd/api/v1/form-submissions";
+const GOVERNANCE_LAYER_URL = `${BACKEND_URL}/p3dx/form-submissions`;
+const DATA_PROVIDER_FORM_URL = `${BACKEND_URL}/p3dx/data-provider-forms`;
+const APD_URL = `${BACKEND_URL}/p3dx/form-submissions`;
 
 // Send Output Owner details to Governance Layer
 async function submitOutputOwnerToGovernance(payload, token) {
@@ -85,13 +85,13 @@ export default function FederatedLearning() {
   // Check user roles
   const roles = user?.roles || [];
   const isOutputOwner = roles.includes('output-owner');
-  // fl-data-provider is FL's own realm role, distinct from SMPC's data-provider.
-  const isDataProvider = roles.includes('fl-data-provider');
+  const isDataProvider = roles.includes('data-provider');
 
   // Data Provider form state
   const [dpFormData, setDpFormData] = useState({
     form_id: 'dataform-001',
     data_owner_id: user?.username || '',
+    dataset_name: '',
     RAM: 16,
     ram_usage: '',
     memory_mb: 8192,
@@ -937,6 +937,10 @@ export default function FederatedLearning() {
               <div className="form-group">
                 <label>Data Owner ID</label>
                 <input value={dpFormData.data_owner_id} onChange={(e) => setDpFormData({...dpFormData, data_owner_id: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label>Dataset Name</label>
+                <input value={dpFormData.dataset_name} onChange={(e) => setDpFormData({...dpFormData, dataset_name: e.target.value})} />
               </div>
               <div className="form-group">
                 <label>RAM (MB)</label>
