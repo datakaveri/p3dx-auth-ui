@@ -118,7 +118,7 @@ export default function UserDashboard() {
               })
             }
           >
-            Start SMPC
+            Catalogue
           </button>
         </div>
       ) : null}

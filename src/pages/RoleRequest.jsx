@@ -25,19 +25,11 @@ export default function RoleRequest() {
   const [actionLoading, setActionLoading] = useState(false);
   const [myLoading, setMyLoading] = useState(false);
 
-  // Datasets submitted by data providers — pulled from APD. Picking at least
-  // one is required before Continue to Services is enabled, so users move on
-  // knowing which dataset(s) they're working with, regardless of whether
-  // they have any role granted yet.
+  // Datasets submitted by data providers — pulled from APD. All of them are
+  // sent along to Continue to Services, regardless of whether the user has
+  // any role granted yet.
   const [datasets, setDatasets] = useState([]);
   const [datasetsLoading, setDatasetsLoading] = useState(false);
-  const [selectedDatasets, setSelectedDatasets] = useState([]);
-
-  const toggleDataset = name => {
-    setSelectedDatasets(prev =>
-      prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]
-    );
-  };
 
   const roles = useMemo(() => user?.roles || [], [user]);
   const selectedOption = ROLE_OPTIONS.find(r => r.value === roleToRequest);
@@ -90,8 +82,8 @@ export default function RoleRequest() {
   }, [token]);
 
   const handleContinueToServices = () => {
-    if (selectedDatasets.length === 0) return;
-    navigate("/app/services", { state: { datasets: selectedDatasets } });
+    if (datasets.length === 0) return;
+    navigate("/app/services", { state: { datasets } });
   };
 
   const handleSubmit = async () => {
@@ -214,52 +206,21 @@ export default function RoleRequest() {
       </div>
 
       <div style={{ marginTop: "22px" }}>
-        <h3 className="section-title">Available Datasets</h3>
         <div className="card">
-          <div style={{ color: "var(--text-light)", fontSize: "14px", marginBottom: "12px" }}>
-            Datasets submitted by data providers. Choose one or more to continue to services.
-          </div>
-
           {datasetsLoading ? (
             <div className="muted">Loading datasets...</div>
           ) : datasets.length === 0 ? (
             <div className="muted">No datasets available yet.</div>
           ) : (
-            <div className="pill-row" style={{ marginBottom: "14px" }}>
-              {datasets.map(name => (
-                <label
-                  key={name}
-                  className="pill"
-                  style={{
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "6px",
-                    border: selectedDatasets.includes(name) ? "1px solid var(--primary-color)" : undefined,
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    name="dataset"
-                    value={name}
-                    checked={selectedDatasets.includes(name)}
-                    onChange={() => toggleDataset(name)}
-                  />
-                  {name}
-                </label>
-              ))}
-            </div>
+            <button
+              className="btn btn-primary"
+              type="button"
+              style={{ width: "auto" }}
+              onClick={handleContinueToServices}
+            >
+              Continue to Services
+            </button>
           )}
-
-          <button
-            className="btn btn-primary"
-            type="button"
-            style={{ width: "auto" }}
-            disabled={selectedDatasets.length === 0}
-            onClick={handleContinueToServices}
-          >
-            Continue to Services
-          </button>
         </div>
       </div>
     </div>
