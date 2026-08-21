@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { submitPolicy } from "../api/policies";
-import { datasets as DATASETS, applications as APPLICATIONS } from "../data/catalogueData";
+import { applications as APPLICATIONS } from "../data/catalogueData";
 
 const ORGS = [
   { id: "datakaveri", label: "@gmail.com" },
@@ -21,13 +21,23 @@ export default function PolicyForm() {
   const returnTo = location.state?.returnTo || "/app/services/fl";
 
   const [form, setForm] = useState({
-    dataset: DATASETS[0].id,
+    datasetId: "",
+    datasetName: "",
     application: APPLICATIONS[0].id,
     allowedOrg: ORGS[0].id,
     accessLevel: "read",
     expiresAt: "",
     purpose: "research",
     notes: "",
+    providerId: user?.username || "",
+    providerEmail: user?.email || "",
+    isPrivate: false,
+    allowedUsers: "",
+    allowedRoles: "",
+    requiredRoles: "",
+    allowedScopes: "",
+    requiredScopes: "",
+    allowedActions: "",
   });
 
   const [submitted, setSubmitted] = useState(false);
@@ -50,18 +60,22 @@ export default function PolicyForm() {
     setError(null);
     setSubmitted(true);
 
-    const dataset = DATASETS.find(d => d.id === form.dataset);
     const application = APPLICATIONS.find(a => a.id === form.application);
     const org = ORGS.find(o => o.id === form.allowedOrg);
+    const toList = s => s.split(",").map(x => x.trim()).filter(Boolean);
 
     const payload = {
       policyId: `policy-${typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Date.now()}`,
-      itemId: form.dataset,
+      itemId: form.datasetId,
       issuedBy: user?.username || user?.email || "unknown",
+      dataset_id: form.datasetId,
+      provider_id: form.providerId || user?.username || user?.email || "unknown",
+      provider_email: form.providerEmail || user?.email || "",
+      is_private: form.isPrivate,
       rules: {
         dataset: {
-          id: form.dataset,
-          name: dataset?.name,
+          id: form.datasetId,
+          name: form.datasetName,
         },
         application: {
           id: form.application,
@@ -74,6 +88,12 @@ export default function PolicyForm() {
         accessLevel: form.accessLevel,
         purpose: form.purpose,
         notes: form.notes,
+        allowed_users: toList(form.allowedUsers),
+        allowed_roles: toList(form.allowedRoles),
+        required_roles: toList(form.requiredRoles),
+        allowed_scopes: toList(form.allowedScopes),
+        required_scopes: toList(form.requiredScopes),
+        allowed_actions: toList(form.allowedActions),
       },
       ...(form.expiresAt
         ? { expiresAt: new Date(`${form.expiresAt}T00:00:00.000Z`).toISOString() }
@@ -118,20 +138,30 @@ export default function PolicyForm() {
 
       <div className="card">
         <form onSubmit={onSubmit}>
-          <div className="form-group">
-            <label>Dataset</label>
-            <select
-              className="select"
-              value={form.dataset}
-              onChange={e => setForm(f => ({ ...f, dataset: e.target.value }))}
-              disabled={submitted}
-            >
-              {DATASETS.map(d => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
+          <div className="grid">
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Dataset ID</label>
+              <input
+                className="input"
+                placeholder="e.g. ds-my-dataset"
+                value={form.datasetId}
+                onChange={e => setForm(f => ({ ...f, datasetId: e.target.value }))}
+                disabled={submitted}
+                required
+              />
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Dataset name</label>
+              <input
+                className="input"
+                placeholder="e.g. My Research Dataset"
+                value={form.datasetName}
+                onChange={e => setForm(f => ({ ...f, datasetName: e.target.value }))}
+                disabled={submitted}
+                required
+              />
+            </div>
           </div>
 
           <div className="form-group">
@@ -218,6 +248,124 @@ export default function PolicyForm() {
               placeholder="Any additional constraints..."
               disabled={submitted}
             />
+          </div>
+
+          <h4 className="section-title" style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid var(--border-color)" }}>
+            Provider &amp; privacy
+          </h4>
+
+          <div className="grid">
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Provider ID</label>
+              <input
+                className="input"
+                value={form.providerId}
+                onChange={e => setForm(f => ({ ...f, providerId: e.target.value }))}
+                disabled={submitted}
+              />
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Provider email</label>
+              <input
+                className="input"
+                type="email"
+                value={form.providerEmail}
+                onChange={e => setForm(f => ({ ...f, providerEmail: e.target.value }))}
+                disabled={submitted}
+              />
+            </div>
+          </div>
+
+          <div className="form-group" style={{ marginTop: "12px" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <input
+                type="checkbox"
+                checked={form.isPrivate}
+                onChange={e => setForm(f => ({ ...f, isPrivate: e.target.checked }))}
+                disabled={submitted}
+              />
+              Private dataset (notify me when a consumer accesses it)
+            </label>
+          </div>
+
+          <h4 className="section-title" style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid var(--border-color)" }}>
+            Access rules (SMPC)
+          </h4>
+          <div style={{ color: "var(--text-light)", fontSize: "13px", marginBottom: "8px" }}>
+            Comma-separated. Leave a field blank to leave it unrestricted.
+          </div>
+
+          <div className="grid">
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Allowed users</label>
+              <input
+                className="input"
+                placeholder="e.g. alice, bob"
+                value={form.allowedUsers}
+                onChange={e => setForm(f => ({ ...f, allowedUsers: e.target.value }))}
+                disabled={submitted}
+              />
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Allowed actions</label>
+              <input
+                className="input"
+                placeholder="e.g. read, train"
+                value={form.allowedActions}
+                onChange={e => setForm(f => ({ ...f, allowedActions: e.target.value }))}
+                disabled={submitted}
+              />
+            </div>
+          </div>
+
+          <div className="grid" style={{ marginTop: "12px" }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Allowed roles</label>
+              <input
+                className="input"
+                placeholder="e.g. researcher"
+                value={form.allowedRoles}
+                onChange={e => setForm(f => ({ ...f, allowedRoles: e.target.value }))}
+                disabled={submitted}
+              />
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Required roles</label>
+              <input
+                className="input"
+                placeholder="e.g. verified-researcher"
+                value={form.requiredRoles}
+                onChange={e => setForm(f => ({ ...f, requiredRoles: e.target.value }))}
+                disabled={submitted}
+              />
+            </div>
+          </div>
+
+          <div className="grid" style={{ marginTop: "12px" }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Allowed scopes</label>
+              <input
+                className="input"
+                placeholder="e.g. dataset:read"
+                value={form.allowedScopes}
+                onChange={e => setForm(f => ({ ...f, allowedScopes: e.target.value }))}
+                disabled={submitted}
+              />
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Required scopes</label>
+              <input
+                className="input"
+                placeholder="e.g. consent:granted"
+                value={form.requiredScopes}
+                onChange={e => setForm(f => ({ ...f, requiredScopes: e.target.value }))}
+                disabled={submitted}
+              />
+            </div>
           </div>
 
           <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end", marginTop: "16px", paddingTop: "16px", borderTop: "1px solid var(--border-color)" }}>

@@ -21,6 +21,7 @@ export function DataOwnerForm({ user, token }) {
     form_id: 'dataform-001',
     data_owner_id: user?.username || '',
     dataset_name: '',
+    dataset_location_url: '',
     RAM: 16,
     ram_usage: '',
     memory_mb: 8192,
@@ -65,6 +66,10 @@ export function DataOwnerForm({ user, token }) {
         <div className="form-group">
           <label>Dataset Name</label>
           <input value={formData.dataset_name} onChange={(e) => setFormData({...formData, dataset_name: e.target.value})} />
+        </div>
+        <div className="form-group">
+          <label>Dataset Location URL</label>
+          <input placeholder="e.g. https://storage.example.com/datasets/my-dataset" value={formData.dataset_location_url} onChange={(e) => setFormData({...formData, dataset_location_url: e.target.value})} />
         </div>
         <div className="form-group">
           <label>RAM (MB)</label>

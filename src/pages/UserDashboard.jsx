@@ -1,14 +1,44 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
+import { getKeyPairStatus, downloadPrivateKey } from "../api/keyPair";
 
 export default function UserDashboard() {
-  const { user } = useOutletContext();
+  const { user, token } = useOutletContext();
   const navigate = useNavigate();
   const location = useLocation();
 
   const roles = useMemo(() => user?.roles || [], [user]);
   const hasApplicationProvider = roles.includes("application-provider");
   const hasDataProvider = roles.includes("data-provider");
+
+  const [keyStatus, setKeyStatus] = useState(null);
+  const [keyDownloading, setKeyDownloading] = useState(false);
+  const [keyError, setKeyError] = useState(null);
+
+  useEffect(() => {
+    if (!hasDataProvider || !token) return;
+    let cancelled = false;
+    getKeyPairStatus(token, "data-provider").then(res => {
+      if (!cancelled && res?.status === "SUCCESS") {
+        setKeyStatus(res);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasDataProvider, token]);
+
+  const handleDownloadKey = async () => {
+    setKeyError(null);
+    setKeyDownloading(true);
+    try {
+      await downloadPrivateKey(token, "data-provider");
+    } catch (err) {
+      setKeyError(err?.message || "Download failed");
+    } finally {
+      setKeyDownloading(false);
+    }
+  };
   const isSMPC = location.pathname.includes("/services/smpc");
   // Technique threaded into the workload picker — only FL/SMPC are wired to
   // contract generation today; /dp has no technique value to pass yet.
@@ -103,10 +133,28 @@ export default function UserDashboard() {
               </div>
             </button>
           ) : null}
+
+          {hasDataProvider && keyStatus?.exists ? (
+            <button
+              className="action-card"
+              type="button"
+              onClick={handleDownloadKey}
+              disabled={keyDownloading}
+            >
+              <div className="action-title">
+                {keyDownloading ? "Downloading..." : "Download Private Key"}
+              </div>
+              <div className="action-description">
+                Download your data-provider private key
+                {keyStatus.download_count > 0 ? ` (downloaded ${keyStatus.download_count} time${keyStatus.download_count === 1 ? "" : "s"} so far)` : ""}.
+              </div>
+            </button>
+          ) : null}
         </div>
+        {keyError ? <div className="error-message">{keyError}</div> : null}
       </div>
 
-      {isSMPC ? (
+      {isSMPC && !hasApplicationProvider && !hasDataProvider ? (
         <div style={{ marginBottom: "18px" }}>
           <button
             className="btn btn-primary"

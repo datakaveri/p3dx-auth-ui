@@ -1285,6 +1285,10 @@ textarea.input {
   }
 }
 
+.spin {
+  animation: spin 1s linear infinite;
+}
+
 .loading-text {
   color: var(--text-light);
   font-size: 14px;

@@ -1,24 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
-import { previewContract } from "../api/workloads";
-import { listAvailableDatasets } from "../api/roleRequests";
-import { applications, categories } from "../data/catalogueData";
-import ApplicationCard from "../components/catalogue/ApplicationCard";
-import ApplicationDetailPanel from "../components/catalogue/ApplicationDetailPanel";
 import {
-  Database, Cpu, Search, Server, Play, X,
-  CheckCircle2, AlertCircle,
-  LayoutGrid, Heart, Activity, Globe, Zap, Shield,
+  previewContract, startTeeSession, getTeeSessionStatus,
+  downloadTeeSessionOutput, terminateTeeSession,
+} from "../api/workloads";
+import { listAvailableDatasets } from "../api/roleRequests";
+import {
+  Database, Search, Server, Play, X,
+  CheckCircle2, AlertCircle, Download, Loader2, RefreshCw, Square,
 } from "lucide-react";
 
-const CATEGORY_ICONS = {
-  "All Categories": <LayoutGrid size={14} />,
-  Healthcare: <Heart size={14} />,
-  Finance: <Activity size={14} />,
-  Transportation: <Globe size={14} />,
-  Geospatial: <Globe size={14} />,
-  Energy: <Zap size={14} />,
-  Privacy: <Shield size={14} />,
+// How often to poll gov_layer for the TEE session's status once started.
+const TEE_SESSION_POLL_MS = 5000;
+
+// Statuses where the session is still in flight and worth polling.
+const TEE_SESSION_ACTIVE = new Set(["provisioning", "attesting", "running"]);
+
+const TEE_SESSION_LABELS = {
+  provisioning: "Starting the confidential VM (cold boot can take a minute)…",
+  attesting: "Verifying TEE attestation…",
+  running: "Running anonymisation in the enclave…",
 };
 
 export default function WorkloadForm() {
@@ -36,12 +37,8 @@ export default function WorkloadForm() {
   }, [isAdmin]);
 
   // Catalogue state
-  const [activeTab, setActiveTab] = useState("datasets");
-  const [selectedCategory, setSelectedCategory] = useState("All Categories");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDatasetName, setSelectedDatasetName] = useState(null);
-  const [selectedApplication, setSelectedApplication] = useState(null);
-  const [viewingApplication, setViewingApplication] = useState(null);
 
   // Real, registered dataset names (from APD via aaa's /available-datasets) —
   // no catalogue metadata (category/description/size/etc.) exists for these yet.
@@ -75,34 +72,31 @@ export default function WorkloadForm() {
   const [generatedContract, setGeneratedContract] = useState(null);
   const [showRawContract, setShowRawContract] = useState(false);
 
+  // TEE session lifecycle: null (not started) | { sessionId, status, error }
+  // status: "provisioning"|"attesting"|"running"|"complete"|"failed"|"terminated"
+  const [teeSession, setTeeSession] = useState(null);
+  const [datasetUrl, setDatasetUrl] = useState("");
+  const [isStartingRun, setIsStartingRun] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [isTerminating, setIsTerminating] = useState(false);
+  const [downloadError, setDownloadError] = useState(null);
+
   // Filtered lists
   const filteredDatasetNames = useMemo(() => {
     const q = searchQuery.toLowerCase();
     return datasetNames.filter(name => !q || name.toLowerCase().includes(q));
   }, [datasetNames, searchQuery]);
 
-  const filteredApplications = useMemo(() => {
-    return applications.filter(app => {
-      const matchesCategory = selectedCategory === "All Categories" || app.category === selectedCategory;
-      const q = searchQuery.toLowerCase();
-      const matchesSearch = !q || app.name.toLowerCase().includes(q) ||
-        app.description.toLowerCase().includes(q) || app.provider.toLowerCase().includes(q);
-      return matchesCategory && matchesSearch;
-    });
-  }, [selectedCategory, searchQuery]);
-
   const handleDatasetSelect = (name) => {
     setSelectedDatasetName(prev => prev === name ? null : name);
   };
 
-  const handleApplicationSelect = (application) => {
-    setSelectedApplication(prev => prev?.id === application.id ? null : application);
-  };
-
   const handleGenerateContract = async () => {
-    if (!selectedDatasetName || !selectedApplication || !technique) return;
+    if (!selectedDatasetName || !technique) return;
     setError(null);
     setGeneratedContract(null);
+    setTeeSession(null);
+    setDownloadError(null);
     setIsGenerating(true);
     try {
       if (!token) throw new Error("MISSING_AUTH_TOKEN");
@@ -118,67 +112,94 @@ export default function WorkloadForm() {
     }
   };
 
-  const canRun = selectedDatasetName && selectedApplication && technique;
+  const handleRunTee = async () => {
+    if (!datasetUrl) return;
+    setDownloadError(null);
+    setIsStartingRun(true);
+    try {
+      const res = await startTeeSession(token, {
+        datasetUrl,
+        datasetId: selectedDatasetName,
+        datasetName: selectedDatasetName,
+      });
+      setTeeSession({ sessionId: res.sessionId, status: res.status || "provisioning", error: null });
+    } catch (err) {
+      setTeeSession({ sessionId: null, status: "failed", error: err.message || "Failed to start TEE session" });
+    } finally {
+      setIsStartingRun(false);
+    }
+  };
+
+  const handleDownloadResult = async () => {
+    if (!teeSession?.sessionId) return;
+    setDownloadError(null);
+    setIsDownloading(true);
+    try {
+      await downloadTeeSessionOutput(token, teeSession.sessionId);
+    } catch (err) {
+      setDownloadError(err.message || "Download failed");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const handleTerminate = async () => {
+    if (!teeSession?.sessionId) return;
+    setIsTerminating(true);
+    try {
+      await terminateTeeSession(token, teeSession.sessionId);
+      setTeeSession(prev => (prev ? { ...prev, status: "terminated" } : prev));
+    } catch (err) {
+      setDownloadError(err.message || "Terminate failed");
+    } finally {
+      setIsTerminating(false);
+    }
+  };
+
+  // Poll gov_layer for the session's status while it's still in flight.
+  useEffect(() => {
+    if (!teeSession?.sessionId || !TEE_SESSION_ACTIVE.has(teeSession.status)) return undefined;
+    const interval = setInterval(async () => {
+      try {
+        const status = await getTeeSessionStatus(token, teeSession.sessionId);
+        setTeeSession(prev =>
+          prev?.sessionId === status.sessionId
+            ? { ...prev, status: status.status, error: status.error || null }
+            : prev
+        );
+      } catch {
+        // Transient poll failure — keep retrying on the next tick.
+      }
+    }, TEE_SESSION_POLL_MS);
+    return () => clearInterval(interval);
+  }, [teeSession?.sessionId, teeSession?.status, token]);
+
+  const canRun = selectedDatasetName && technique;
   const missingItems = [];
   if (!selectedDatasetName) missingItems.push("dataset");
-  if (!selectedApplication) missingItems.push("application");
-  if (!technique) missingItems.push("service (FL/SMPC — go back and start from that dashboard)");
+  if (!technique) missingItems.push("service (go back to Services and start from SMPC or Anonymization)");
 
   return (
     <div className="cat-layout">
-      {/* Left sidebar — categories */}
+      {/* Left sidebar */}
       <aside className="cat-sidebar">
         <div className="cat-sidebar__header">
-          {activeTab === "datasets"
-            ? <><Database size={16} /><span>Datasets</span></>
-            : <><Cpu size={16} /><span>Applications</span></>
-          }
+          <Database size={16} /><span>Datasets</span>
         </div>
-        {activeTab === "applications" ? (
-          <nav className="cat-sidebar__nav">
-            {categories.map(cat => (
-              <button
-                key={cat}
-                className={`cat-sidebar__item${selectedCategory === cat ? " cat-sidebar__item--active" : ""}`}
-                onClick={() => setSelectedCategory(cat)}
-              >
-                {CATEGORY_ICONS[cat]}
-                {cat}
-              </button>
-            ))}
-          </nav>
-        ) : (
-          <div className="cat-sidebar__nav" style={{ padding: "10px 14px", fontSize: 13, color: "var(--text-light)" }}>
-            Registered datasets aren't categorized yet — search by name instead.
-          </div>
-        )}
+        <div className="cat-sidebar__nav" style={{ padding: "10px 14px", fontSize: 13, color: "var(--text-light)" }}>
+          Registered datasets aren't categorized yet — search by name instead.
+        </div>
       </aside>
 
       {/* Main content */}
       <div className="cat-main">
         {/* Toolbar */}
         <div className="cat-toolbar">
-          <div className="cat-tabs">
-            <button
-              className={`cat-tab${activeTab === "datasets" ? " cat-tab--active" : ""}`}
-              onClick={() => setActiveTab("datasets")}
-            >
-              <Database size={14} />
-              Datasets
-            </button>
-            <button
-              className={`cat-tab${activeTab === "applications" ? " cat-tab--active" : ""}`}
-              onClick={() => setActiveTab("applications")}
-            >
-              <Cpu size={14} />
-              Applications
-            </button>
-          </div>
           <div className="cat-search">
             <Search size={14} className="cat-search__icon" />
             <input
               className="cat-search__input"
-              placeholder={`Search ${activeTab}...`}
+              placeholder="Search datasets..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
             />
@@ -195,70 +216,40 @@ export default function WorkloadForm() {
         <div className="cat-content">
           {/* Cards list */}
           <div className="cat-list">
-            {activeTab === "datasets" ? (
-              datasetsLoading ? (
-                <div className="cat-empty">
-                  <Database size={40} />
-                  <p>Loading datasets…</p>
-                </div>
-              ) : datasetsError ? (
-                <div className="cat-empty">
-                  <AlertCircle size={40} />
-                  <p>Could not load datasets</p>
-                  <span>{datasetsError}</span>
-                </div>
-              ) : filteredDatasetNames.length > 0 ? (
-                <div className="cat-simple-list">
-                  {filteredDatasetNames.map(name => (
-                    <button
-                      key={name}
-                      type="button"
-                      className={`cat-simple-item${selectedDatasetName === name ? " cat-simple-item--selected" : ""}`}
-                      onClick={() => handleDatasetSelect(name)}
-                    >
-                      <Database size={16} />
-                      <span className="cat-simple-item__name">{name}</span>
-                      {selectedDatasetName === name && <CheckCircle2 size={15} />}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="cat-empty">
-                  <Database size={40} />
-                  <p>No datasets registered yet</p>
-                  <span>Datasets show up here once a data provider registers one</span>
-                </div>
-              )
+            {datasetsLoading ? (
+              <div className="cat-empty">
+                <Database size={40} />
+                <p>Loading datasets…</p>
+              </div>
+            ) : datasetsError ? (
+              <div className="cat-empty">
+                <AlertCircle size={40} />
+                <p>Could not load datasets</p>
+                <span>{datasetsError}</span>
+              </div>
+            ) : filteredDatasetNames.length > 0 ? (
+              <div className="cat-simple-list">
+                {filteredDatasetNames.map(name => (
+                  <button
+                    key={name}
+                    type="button"
+                    className={`cat-simple-item${selectedDatasetName === name ? " cat-simple-item--selected" : ""}`}
+                    onClick={() => handleDatasetSelect(name)}
+                  >
+                    <Database size={16} />
+                    <span className="cat-simple-item__name">{name}</span>
+                    {selectedDatasetName === name && <CheckCircle2 size={15} />}
+                  </button>
+                ))}
+              </div>
             ) : (
-              filteredApplications.length > 0 ? (
-                filteredApplications.map(application => (
-                  <ApplicationCard
-                    key={application.id}
-                    application={application}
-                    isSelected={selectedApplication?.id === application.id}
-                    onSelect={() => handleApplicationSelect(application)}
-                    onViewDetails={() => setViewingApplication(application)}
-                  />
-                ))
-              ) : (
-                <div className="cat-empty">
-                  <Cpu size={40} />
-                  <p>No applications found</p>
-                  <span>Try adjusting your search or category filter</span>
-                </div>
-              )
+              <div className="cat-empty">
+                <Database size={40} />
+                <p>No datasets registered yet</p>
+                <span>Datasets show up here once a data provider registers one</span>
+              </div>
             )}
           </div>
-
-          {/* Detail panel */}
-          {viewingApplication && (
-            <ApplicationDetailPanel
-              application={viewingApplication}
-              isSelected={selectedApplication?.id === viewingApplication.id}
-              onSelect={() => handleApplicationSelect(viewingApplication)}
-              onClose={() => setViewingApplication(null)}
-            />
-          )}
         </div>
       </div>
 
@@ -284,7 +275,7 @@ export default function WorkloadForm() {
             <div className="cat-slot__label">Service</div>
             {technique
               ? <div className="cat-slot__value">{technique}</div>
-              : <div className="cat-slot__placeholder">Not set — start from the FL or SMPC dashboard</div>
+              : <div className="cat-slot__placeholder">Not set — start from Services &gt; SMPC or Anonymization</div>
             }
           </div>
         </div>
@@ -308,25 +299,6 @@ export default function WorkloadForm() {
           )}
         </div>
 
-        {/* Application slot */}
-        <div className={`cat-slot${selectedApplication ? " cat-slot--filled" : ""}`}>
-          <div className="cat-slot__icon">
-            <Cpu size={16} />
-          </div>
-          <div className="cat-slot__info">
-            <div className="cat-slot__label">Application</div>
-            {selectedApplication
-              ? <div className="cat-slot__value">{selectedApplication.name}</div>
-              : <div className="cat-slot__placeholder">No application selected</div>
-            }
-          </div>
-          {selectedApplication && (
-            <button className="cat-icon-btn cat-slot__clear" onClick={() => setSelectedApplication(null)} title="Clear">
-              <X size={13} />
-            </button>
-          )}
-        </div>
-
         {/* Status */}
         <div className={`cat-status${canRun ? " cat-status--ready" : ""}`}>
           {canRun
@@ -335,8 +307,8 @@ export default function WorkloadForm() {
           }
         </div>
 
-        {/* Generate button — this only builds and displays a contract. It does
-            not submit/deploy anything; that step is not wired up yet. */}
+        {/* Generate button — this only builds and displays a contract. For
+            TEE it can then be submitted for a run via the button below. */}
         <button
           className="btn btn-primary"
           style={{ width: "100%", marginTop: 0 }}
@@ -390,6 +362,130 @@ export default function WorkloadForm() {
               <pre style={{ marginTop: 10, fontSize: 12, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
                 {JSON.stringify(generatedContract, null, 2)}
               </pre>
+            )}
+
+            {technique === "TEE" && (
+              <div style={{ marginTop: 14, borderTop: "1px solid var(--border-color)", paddingTop: 14 }}>
+                {(!teeSession || teeSession.status === "failed") && (
+                  <>
+                    <label className="label" style={{ display: "block", marginBottom: 6 }}>
+                      Dataset blob URL (https)
+                    </label>
+                    <input
+                      type="url"
+                      placeholder="https://anondata2.blob.core.windows.net/encrypted-data/..."
+                      value={datasetUrl}
+                      onChange={e => setDatasetUrl(e.target.value)}
+                      className="cat-search__input"
+                      style={{ width: "100%", marginBottom: 10, boxSizing: "border-box" }}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ width: "100%" }}
+                      disabled={isStartingRun || !datasetUrl}
+                      onClick={handleRunTee}
+                    >
+                      {isStartingRun ? (
+                        <><Loader2 size={14} className="spin" style={{ marginRight: 6 }} />Starting TEE session...</>
+                      ) : (
+                        <><Play size={14} style={{ marginRight: 6 }} />Run TEE</>
+                      )}
+                    </button>
+                    <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-light)" }}>
+                      This starts a real confidential VM — it bills while running.
+                    </div>
+                    {teeSession?.status === "failed" && (
+                      <div className="error-message" style={{ marginTop: 10, fontSize: 13 }}>
+                        {teeSession.error || "TEE session failed"}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {teeSession && TEE_SESSION_ACTIVE.has(teeSession.status) && (
+                  <>
+                    <div className="cat-status" style={{ justifyContent: "flex-start" }}>
+                      <Loader2 size={15} className="spin" />
+                      <span>{TEE_SESSION_LABELS[teeSession.status] || "Working…"}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ width: "100%", marginTop: 8 }}
+                      disabled={isTerminating}
+                      onClick={handleTerminate}
+                    >
+                      {isTerminating ? (
+                        <><Loader2 size={13} className="spin" style={{ marginRight: 6 }} />Stopping...</>
+                      ) : (
+                        <><Square size={12} style={{ marginRight: 6 }} />Stop / terminate VM</>
+                      )}
+                    </button>
+                  </>
+                )}
+
+                {teeSession?.status === "complete" && (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ width: "100%" }}
+                      disabled={isDownloading}
+                      onClick={handleDownloadResult}
+                    >
+                      {isDownloading ? (
+                        <><Loader2 size={14} className="spin" style={{ marginRight: 6 }} />Downloading...</>
+                      ) : (
+                        <><Download size={14} style={{ marginRight: 6 }} />Download Anonymized Data</>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ width: "100%", marginTop: 8 }}
+                      disabled={isTerminating}
+                      onClick={handleTerminate}
+                    >
+                      {isTerminating ? (
+                        <><Loader2 size={13} className="spin" style={{ marginRight: 6 }} />Stopping...</>
+                      ) : (
+                        <><Square size={12} style={{ marginRight: 6 }} />Stop / terminate VM</>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ width: "100%", marginTop: 8 }}
+                      onClick={() => { setTeeSession(null); setDownloadError(null); }}
+                    >
+                      <RefreshCw size={13} style={{ marginRight: 6 }} />Run again
+                    </button>
+                    {downloadError && (
+                      <div className="error-message" style={{ marginTop: 10, fontSize: 13 }}>
+                        {downloadError}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {teeSession?.status === "terminated" && (
+                  <>
+                    <div className="cat-status">
+                      <CheckCircle2 size={15} />
+                      <span>VM terminated</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ width: "100%", marginTop: 8 }}
+                      onClick={() => { setTeeSession(null); setDownloadError(null); }}
+                    >
+                      <RefreshCw size={13} style={{ marginRight: 6 }} />Run again
+                    </button>
+                  </>
+                )}
+              </div>
             )}
           </div>
         )}
