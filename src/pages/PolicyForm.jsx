@@ -10,6 +10,9 @@ const ORGS = [
   { id: "university", label: "@university.edu" },
 ];
 
+// Splits a comma-separated string into a trimmed, non-empty string array.
+const toList = value => value.split(",").map(s => s.trim()).filter(Boolean);
+
 export default function PolicyForm() {
   const { user, isAdmin, token } = useOutletContext();
   const roles = useMemo(() => user?.roles || [], [user]);
@@ -29,8 +32,8 @@ export default function PolicyForm() {
     expiresAt: "",
     purpose: "research",
     notes: "",
-    providerId: user?.username || "",
-    providerEmail: user?.email || "",
+    providerId: "",
+    providerEmail: "",
     isPrivate: false,
     allowedUsers: "",
     allowedRoles: "",
@@ -62,15 +65,14 @@ export default function PolicyForm() {
 
     const application = APPLICATIONS.find(a => a.id === form.application);
     const org = ORGS.find(o => o.id === form.allowedOrg);
-    const toList = s => s.split(",").map(x => x.trim()).filter(Boolean);
 
     const payload = {
       policyId: `policy-${typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Date.now()}`,
       itemId: form.datasetId,
       issuedBy: user?.username || user?.email || "unknown",
       dataset_id: form.datasetId,
-      provider_id: form.providerId || user?.username || user?.email || "unknown",
-      provider_email: form.providerEmail || user?.email || "",
+      provider_id: form.providerId,
+      provider_email: form.providerEmail,
       is_private: form.isPrivate,
       rules: {
         dataset: {
@@ -238,7 +240,125 @@ export default function PolicyForm() {
             </select>
           </div>
 
-          <div className="form-group">
+          <div style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px solid var(--border-color)" }}>
+            <div style={{ fontWeight: 600, marginBottom: "8px" }}>Access Rules</div>
+
+            <div className="grid">
+              <div className="form-group">
+                <label>Provider ID</label>
+                <input
+                  className="input"
+                  type="text"
+                  value={form.providerId}
+                  onChange={e => setForm(f => ({ ...f, providerId: e.target.value }))}
+                  placeholder="e.g. provider-123"
+                  disabled={submitted}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Provider Email</label>
+                <input
+                  className="input"
+                  type="email"
+                  value={form.providerEmail}
+                  onChange={e => setForm(f => ({ ...f, providerEmail: e.target.value }))}
+                  placeholder="provider@example.com"
+                  disabled={submitted}
+                />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <input
+                  type="checkbox"
+                  checked={form.isPrivate}
+                  onChange={e => setForm(f => ({ ...f, isPrivate: e.target.checked }))}
+                  disabled={submitted}
+                />
+                Private dataset
+              </label>
+            </div>
+
+            <div className="form-group">
+              <label>Allowed Users (comma-separated)</label>
+              <input
+                className="input"
+                type="text"
+                value={form.allowedUsers}
+                onChange={e => setForm(f => ({ ...f, allowedUsers: e.target.value }))}
+                placeholder="e.g. alice, bob"
+                disabled={submitted}
+              />
+            </div>
+
+            <div className="grid">
+              <div className="form-group">
+                <label>Allowed Roles (comma-separated)</label>
+                <input
+                  className="input"
+                  type="text"
+                  value={form.allowedRoles}
+                  onChange={e => setForm(f => ({ ...f, allowedRoles: e.target.value }))}
+                  placeholder="e.g. data-provider, admin"
+                  disabled={submitted}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Required Roles (comma-separated)</label>
+                <input
+                  className="input"
+                  type="text"
+                  value={form.requiredRoles}
+                  onChange={e => setForm(f => ({ ...f, requiredRoles: e.target.value }))}
+                  placeholder="e.g. output-owner"
+                  disabled={submitted}
+                />
+              </div>
+            </div>
+
+            <div className="grid">
+              <div className="form-group">
+                <label>Allowed Scopes (comma-separated)</label>
+                <input
+                  className="input"
+                  type="text"
+                  value={form.allowedScopes}
+                  onChange={e => setForm(f => ({ ...f, allowedScopes: e.target.value }))}
+                  placeholder="e.g. read, compute"
+                  disabled={submitted}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Required Scopes (comma-separated)</label>
+                <input
+                  className="input"
+                  type="text"
+                  value={form.requiredScopes}
+                  onChange={e => setForm(f => ({ ...f, requiredScopes: e.target.value }))}
+                  placeholder="e.g. openid"
+                  disabled={submitted}
+                />
+              </div>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Allowed Actions (comma-separated)</label>
+              <input
+                className="input"
+                type="text"
+                value={form.allowedActions}
+                onChange={e => setForm(f => ({ ...f, allowedActions: e.target.value }))}
+                placeholder="e.g. compute, aggregate"
+                disabled={submitted}
+              />
+            </div>
+          </div>
+
+          <div className="form-group" style={{ marginTop: "12px" }}>
             <label>Notes</label>
             <textarea
               className="input"
@@ -248,124 +368,6 @@ export default function PolicyForm() {
               placeholder="Any additional constraints..."
               disabled={submitted}
             />
-          </div>
-
-          <h4 className="section-title" style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid var(--border-color)" }}>
-            Provider &amp; privacy
-          </h4>
-
-          <div className="grid">
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Provider ID</label>
-              <input
-                className="input"
-                value={form.providerId}
-                onChange={e => setForm(f => ({ ...f, providerId: e.target.value }))}
-                disabled={submitted}
-              />
-            </div>
-
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Provider email</label>
-              <input
-                className="input"
-                type="email"
-                value={form.providerEmail}
-                onChange={e => setForm(f => ({ ...f, providerEmail: e.target.value }))}
-                disabled={submitted}
-              />
-            </div>
-          </div>
-
-          <div className="form-group" style={{ marginTop: "12px" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <input
-                type="checkbox"
-                checked={form.isPrivate}
-                onChange={e => setForm(f => ({ ...f, isPrivate: e.target.checked }))}
-                disabled={submitted}
-              />
-              Private dataset (notify me when a consumer accesses it)
-            </label>
-          </div>
-
-          <h4 className="section-title" style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid var(--border-color)" }}>
-            Access rules (SMPC)
-          </h4>
-          <div style={{ color: "var(--text-light)", fontSize: "13px", marginBottom: "8px" }}>
-            Comma-separated. Leave a field blank to leave it unrestricted.
-          </div>
-
-          <div className="grid">
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Allowed users</label>
-              <input
-                className="input"
-                placeholder="e.g. alice, bob"
-                value={form.allowedUsers}
-                onChange={e => setForm(f => ({ ...f, allowedUsers: e.target.value }))}
-                disabled={submitted}
-              />
-            </div>
-
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Allowed actions</label>
-              <input
-                className="input"
-                placeholder="e.g. read, train"
-                value={form.allowedActions}
-                onChange={e => setForm(f => ({ ...f, allowedActions: e.target.value }))}
-                disabled={submitted}
-              />
-            </div>
-          </div>
-
-          <div className="grid" style={{ marginTop: "12px" }}>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Allowed roles</label>
-              <input
-                className="input"
-                placeholder="e.g. researcher"
-                value={form.allowedRoles}
-                onChange={e => setForm(f => ({ ...f, allowedRoles: e.target.value }))}
-                disabled={submitted}
-              />
-            </div>
-
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Required roles</label>
-              <input
-                className="input"
-                placeholder="e.g. verified-researcher"
-                value={form.requiredRoles}
-                onChange={e => setForm(f => ({ ...f, requiredRoles: e.target.value }))}
-                disabled={submitted}
-              />
-            </div>
-          </div>
-
-          <div className="grid" style={{ marginTop: "12px" }}>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Allowed scopes</label>
-              <input
-                className="input"
-                placeholder="e.g. dataset:read"
-                value={form.allowedScopes}
-                onChange={e => setForm(f => ({ ...f, allowedScopes: e.target.value }))}
-                disabled={submitted}
-              />
-            </div>
-
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Required scopes</label>
-              <input
-                className="input"
-                placeholder="e.g. consent:granted"
-                value={form.requiredScopes}
-                onChange={e => setForm(f => ({ ...f, requiredScopes: e.target.value }))}
-                disabled={submitted}
-              />
-            </div>
           </div>
 
           <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end", marginTop: "16px", paddingTop: "16px", borderTop: "1px solid var(--border-color)" }}>
