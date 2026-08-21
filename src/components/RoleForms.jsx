@@ -21,6 +21,7 @@ export function DataOwnerForm({ user, token }) {
     form_id: 'dataform-001',
     data_owner_id: user?.username || '',
     dataset_name: '',
+    dataset_location_url: '',
     RAM: 16,
     ram_usage: '',
     memory_mb: 8192,
@@ -131,6 +132,17 @@ export function DataOwnerForm({ user, token }) {
 
         <div className="grid">
           <div className="form-group">
+            <label>Dataset Location URL</label>
+            <input
+              className="input"
+              placeholder="e.g. https://storage.example.com/datasets/my-dataset"
+              value={formData.dataset_location_url}
+              onChange={e => setFormData({ ...formData, dataset_location_url: e.target.value })}
+              disabled={submitting}
+            />
+          </div>
+
+          <div className="form-group">
             <label>Disk Space (MB)</label>
             <input
               className="input"
@@ -140,7 +152,9 @@ export function DataOwnerForm({ user, token }) {
               disabled={submitting}
             />
           </div>
+        </div>
 
+        <div className="grid">
           <div className="form-group">
             <label>Data Size (bytes)</label>
             <input

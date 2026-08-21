@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { submitPolicy } from "../api/policies";
-import { datasets as DATASETS, applications as APPLICATIONS } from "../data/catalogueData";
+import { applications as APPLICATIONS } from "../data/catalogueData";
 
 const ORGS = [
   { id: "datakaveri", label: "@gmail.com" },
@@ -24,7 +24,8 @@ export default function PolicyForm() {
   const returnTo = location.state?.returnTo || "/app/services/fl";
 
   const [form, setForm] = useState({
-    dataset: DATASETS[0].id,
+    datasetId: "",
+    datasetName: "",
     application: APPLICATIONS[0].id,
     allowedOrg: ORGS[0].id,
     accessLevel: "read",
@@ -62,21 +63,21 @@ export default function PolicyForm() {
     setError(null);
     setSubmitted(true);
 
-    const dataset = DATASETS.find(d => d.id === form.dataset);
     const application = APPLICATIONS.find(a => a.id === form.application);
     const org = ORGS.find(o => o.id === form.allowedOrg);
 
     const payload = {
       policyId: `policy-${typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Date.now()}`,
-      itemId: form.dataset,
+      itemId: form.datasetId,
       issuedBy: user?.username || user?.email || "unknown",
+      dataset_id: form.datasetId,
       provider_id: form.providerId,
       provider_email: form.providerEmail,
       is_private: form.isPrivate,
       rules: {
         dataset: {
-          id: form.dataset,
-          name: dataset?.name,
+          id: form.datasetId,
+          name: form.datasetName,
         },
         application: {
           id: form.application,
@@ -139,20 +140,30 @@ export default function PolicyForm() {
 
       <div className="card">
         <form onSubmit={onSubmit}>
-          <div className="form-group">
-            <label>Dataset</label>
-            <select
-              className="select"
-              value={form.dataset}
-              onChange={e => setForm(f => ({ ...f, dataset: e.target.value }))}
-              disabled={submitted}
-            >
-              {DATASETS.map(d => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
+          <div className="grid">
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Dataset ID</label>
+              <input
+                className="input"
+                placeholder="e.g. ds-my-dataset"
+                value={form.datasetId}
+                onChange={e => setForm(f => ({ ...f, datasetId: e.target.value }))}
+                disabled={submitted}
+                required
+              />
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Dataset name</label>
+              <input
+                className="input"
+                placeholder="e.g. My Research Dataset"
+                value={form.datasetName}
+                onChange={e => setForm(f => ({ ...f, datasetName: e.target.value }))}
+                disabled={submitted}
+                required
+              />
+            </div>
           </div>
 
           <div className="form-group">

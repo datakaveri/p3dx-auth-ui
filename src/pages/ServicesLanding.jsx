@@ -1,5 +1,5 @@
 import { useNavigate, useOutletContext } from "react-router-dom";
-import { EyeOff, Network, Lock, BarChart2, ArrowRight, CheckCircle } from "lucide-react";
+import { EyeOff, Network, Lock, BarChart2, ArrowRight, CheckCircle, ShieldCheck } from "lucide-react";
 
 const SERVICE_DEFS = [
   {
@@ -69,6 +69,16 @@ const SERVICE_DEFS = [
     cardClass: "service-card--teal",
     roleRequired: true,
     navigate: "/app/services/smpc",
+  },
+  {
+    title: "Anonymization",
+    description:
+      "Run a workload inside a trusted execution environment (TEE) and get back anonymized data.",
+    icon: <ShieldCheck size={22} />,
+    iconClass: "service-icon--amber",
+    cardClass: "service-card--amber",
+    roleRequired: false,
+    navigate: "/app/services/anon",
   },
 ];
 

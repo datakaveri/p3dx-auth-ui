@@ -92,6 +92,7 @@ export default function FederatedLearning() {
     form_id: 'dataform-001',
     data_owner_id: user?.username || '',
     dataset_name: '',
+    dataset_location_url: '',
     RAM: 16,
     ram_usage: '',
     memory_mb: 8192,
@@ -941,6 +942,10 @@ export default function FederatedLearning() {
               <div className="form-group">
                 <label>Dataset Name</label>
                 <input value={dpFormData.dataset_name} onChange={(e) => setDpFormData({...dpFormData, dataset_name: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label>Dataset Location URL</label>
+                <input placeholder="e.g. https://storage.example.com/datasets/my-dataset" value={dpFormData.dataset_location_url} onChange={(e) => setDpFormData({...dpFormData, dataset_location_url: e.target.value})} />
               </div>
               <div className="form-group">
                 <label>RAM (MB)</label>

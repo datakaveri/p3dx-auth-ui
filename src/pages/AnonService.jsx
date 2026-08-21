@@ -25,7 +25,7 @@ export default function AnonService() {
             type="button"
             onClick={() =>
               navigate("/app/services/run", {
-                state: { returnTo: location.pathname },
+                state: { returnTo: location.pathname, technique: "TEE" },
               })
             }
           >
@@ -34,17 +34,7 @@ export default function AnonService() {
         </div>
         <div style={{ height: "12px" }} />
         <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
-          This is a static placeholder page. No special roles are required.
-        </div>
-      </div>
-
-      <div className="card">
-        <div style={{ color: "var(--text-dark)", fontSize: "14px", fontWeight: 700, marginBottom: "10px" }}>
-          Coming soon
-        </div>
-        <div style={{ color: "var(--text-light)", fontSize: "14px", lineHeight: 1.6 }}>
-          The anonymization workflow will be integrated here. For now, this page confirms that users can
-          access the service without requesting additional roles.
+          Anonymization runs on TEE — pick a dataset to generate a contract, then run it.
         </div>
       </div>
     </div>

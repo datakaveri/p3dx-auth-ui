@@ -50,6 +50,90 @@ export async function previewContract(token, { datasetId, technique }) {
   return data;
 }
 
+// Starts a real TEE session against the confidential VM (gov_layer
+// sequences provision -> attest -> run -> poll -> output in the background —
+// see POST /v1/tee/sessions). Returns immediately with a sessionId; poll
+// getTeeSessionStatus for progress, then call downloadTeeSessionOutput once
+// complete. datasetUrl must be an https URL the CVM's managed identity can
+// read.
+export async function startTeeSession(token, { datasetUrl, datasetId, datasetName }) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/workloads/tee-sessions`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ datasetUrl, datasetId, datasetName }),
+  });
+
+  const data = await parseJsonSafe(res);
+
+  if (!res.ok || data?.status === "FAILED") {
+    const msg = data?.error || data?.message || `Starting TEE session failed (${res.status})`;
+    throw new Error(msg);
+  }
+
+  return data;
+}
+
+export async function getTeeSessionStatus(token, sessionId) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/workloads/tee-sessions/${encodeURIComponent(sessionId)}`, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+
+  const data = await parseJsonSafe(res);
+
+  if (!res.ok || data?.status === "FAILED") {
+    const msg = data?.error || data?.message || `Getting TEE session status failed (${res.status})`;
+    throw new Error(msg);
+  }
+
+  return data;
+}
+
+// Fetches the anonymized output of a completed TEE session and triggers a
+// browser file-save, same blob + temporary-anchor pattern as
+// api/keyPair.js's downloadPrivateKey.
+export async function downloadTeeSessionOutput(token, sessionId) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/workloads/tee-sessions/${encodeURIComponent(sessionId)}/output`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const data = await parseJsonSafe(res);
+    throw new Error(data?.error || data?.message || `Download failed (${res.status})`);
+  }
+
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match?.[1] || `anonymized-${sessionId}.bin`;
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+// Terminates a TEE session's confidential VM so it stops billing compute.
+export async function terminateTeeSession(token, sessionId) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/workloads/tee-sessions/${encodeURIComponent(sessionId)}`, {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+
+  const data = await parseJsonSafe(res);
+
+  if (!res.ok || data?.status === "FAILED") {
+    const msg = data?.error || data?.message || `Terminating TEE session failed (${res.status})`;
+    throw new Error(msg);
+  }
+
+  return data;
+}
+
 export async function getWorkloadResult(token, contractId) {
   const res = await fetch(`${BACKEND_URL}/p3dx/workloads/contracts/${contractId}/result`, {
     method: "GET",

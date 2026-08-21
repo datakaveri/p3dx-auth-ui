@@ -9,7 +9,6 @@ import { createRoleRequest, listMyRoleRequests, listAvailableDatasets } from "..
 // page. Every role goes through admin approval; once approved, the relevant
 // service page picks up the granted role automatically.
 const ROLE_OPTIONS = [
-  { value: "output-owner", label: "Output Owner — Federated Learning" },
   { value: "application-provider", label: "Application Provider — SMPC / Differential Privacy" },
   { value: "data-provider", label: "Data Provider — Federated Learning / SMPC / Differential Privacy" },
 ];
