@@ -3,14 +3,14 @@ import { useNavigate, useOutletContext } from "react-router-dom";
 import { createRoleRequest, listMyRoleRequests, listAvailableDatasets } from "../api/roleRequests";
 
 // Single "request access" page for every role-gated service (Federated
-// Learning, SMPC, Differential Privacy). AppShell sends non-admins here
+// Learning, SMPC, TEE, Differential Privacy). AppShell sends non-admins here
 // first after login, before they ever reach the services list — so the
 // request always happens before service selection, never inside a service
 // page. Every role goes through admin approval; once approved, the relevant
 // service page picks up the granted role automatically.
 const ROLE_OPTIONS = [
-  { value: "application-provider", label: "Application Provider — SMPC / Differential Privacy" },
-  { value: "data-provider", label: "Data Provider — Federated Learning / SMPC / Differential Privacy" },
+  { value: "application-provider", label: "Application Provider — SMPC / TEE / Differential Privacy" },
+  { value: "data-provider", label: "Data Provider — Federated Learning / SMPC / TEE / Differential Privacy" },
 ];
 
 export default function RoleRequest() {

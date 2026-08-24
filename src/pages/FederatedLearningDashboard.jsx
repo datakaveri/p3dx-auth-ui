@@ -26,6 +26,12 @@ export default function FederatedLearningDashboard() {
   const roles = useMemo(() => user?.roles || [], [user]);
   const hasOutputOwner = roles.includes("output-owner");
   const hasDataProvider = roles.includes("data-provider");
+  // A user with no role (or any role other than data-provider) can open the
+  // plain output-owner form â€” only an explicit data-provider (without
+  // output-owner) is restricted to their own form. The rest of the owner
+  // workflow (provider selection, tracking, final model) still requires the
+  // actual output-owner role, enforced on the Federated Learning page itself.
+  const canSeeOutputOwnerForm = hasOutputOwner || !hasDataProvider;
 
   const serviceLabel = useMemo(() => {
     const path = location.pathname;
@@ -195,11 +201,31 @@ export default function FederatedLearningDashboard() {
 
       {hasDataProvider && <DataOwnerForm user={user} token={token} />}
 
-      {hasOutputOwner && (
+      {!hasDataProvider && (
+        <div className="card" style={{ marginBottom: "18px" }}>
+          <h3 className="section-title" style={{ marginTop: 0 }}>Become a Data Provider</h3>
+          <div style={{ color: "var(--text-light)", fontSize: "14px", marginBottom: "12px" }}>
+            Want to contribute a dataset to federated learning sessions instead? Request the{" "}
+            <strong>data-provider</strong> role.
+          </div>
+          <button
+            className="btn btn-secondary"
+            type="button"
+            style={{ width: "auto" }}
+            onClick={() => navigate("/app/role-request")}
+          >
+            Request Data Provider Role
+          </button>
+        </div>
+      )}
+
+      {canSeeOutputOwnerForm && (
         <div className="card" style={{ marginBottom: "18px" }}>
           <h3 className="section-title" style={{ marginTop: 0 }}>Output Owner</h3>
           <div style={{ color: "var(--text-light)", fontSize: "14px", marginBottom: "12px" }}>
-            Configure a federated learning session and select the data providers to invite.
+            {hasOutputOwner
+              ? "Configure a federated learning session and select the data providers to invite."
+              : "Fill in the federated learning configuration form."}
           </div>
           <button
             className="btn btn-primary"
@@ -208,22 +234,6 @@ export default function FederatedLearningDashboard() {
             onClick={() => navigate("/app/services/fl/federated-learning")}
           >
             Open Federated Learning Configuration
-          </button>
-        </div>
-      )}
-
-      {!hasDataProvider && !hasOutputOwner && (
-        <div className="card" style={{ marginBottom: "18px" }}>
-          <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
-            You need the <strong>output-owner</strong> or <strong>data-provider</strong> role to use Federated Learning.
-          </div>
-          <button
-            className="btn btn-secondary"
-            type="button"
-            style={{ width: "auto", marginTop: "10px" }}
-            onClick={() => navigate("/app/role-request")}
-          >
-            Request Access
           </button>
         </div>
       )}
@@ -297,11 +307,12 @@ export default function FederatedLearningDashboard() {
                     const ownerLabel = payload.output_owner_id || notification.sender_username || "output owner";
                     const responded = !!notification.response;
                     const contract = payload.contract && typeof payload.contract === "object" ? payload.contract : null;
-                    const partyList = contract?.parties && typeof contract.parties === "object" ? Object.values(contract.parties) : [];
-                    const contractProviders = partyList.filter(p => p && p.role === "DATA_PROVIDER");
-                    const draftingParty = partyList.find(p => p && p.role === "DRAFTING_PARTY") || null;
+                    // Governance layer's unified contract schema: parties is a
+                    // fixed-shape object ({user, data_providers[], ...}), not a
+                    // role-tagged map — read the arrays/fields directly.
+                    const contractProviders = Array.isArray(contract?.parties?.data_providers) ? contract.parties.data_providers : [];
+                    const draftingParty = contract?.parties?.user || null;
                     const sessionInfo = contract?.session_info || {};
-                    const ci = sessionInfo.training_config || {};
                     return (
                     <div
                       key={notification.id}
@@ -404,23 +415,13 @@ export default function FederatedLearningDashboard() {
                               <strong>Output owner:</strong> {draftingParty.name || draftingParty.id}
                             </div>
                           )}
-                          <div>
-                            <strong>FL config:</strong> {[
-                              ci.model && `model ${ci.model}`,
-                              ci.framework && `framework ${ci.framework}`,
-                              ci.num_server_rounds != null && `${ci.num_server_rounds} rounds`,
-                              ci.local_epochs != null && `${ci.local_epochs} epochs`,
-                              ci.learning_rate != null && `lr ${ci.learning_rate}`,
-                              ci.batch_size != null && `batch ${ci.batch_size}`,
-                            ].filter(Boolean).join(", ") || "â€”"}
-                          </div>
                           {contractProviders.length > 0 && (
                             <div>
                               <strong>Participating data providers ({contractProviders.length}):</strong>
                               <ul style={{ margin: "4px 0 0", paddingLeft: "18px" }}>
                                 {contractProviders.map((p, i) => (
                                   <li key={p.id || p.name || i}>
-                                    {p.name || p.id}{p.data_resource_id ? ` â€” ${p.data_resource_id}` : ""}
+                                    {p.name || p.id}{p.dataset_name ? ` — ${p.dataset_name}` : ""}
                                   </li>
                                 ))}
                               </ul>

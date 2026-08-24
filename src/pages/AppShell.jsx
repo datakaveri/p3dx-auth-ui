@@ -118,9 +118,14 @@ export default function AppShell() {
               Admin
             </a>
           ) : (
-            <a className={location.pathname.startsWith("/app/services") ? "tab tab-active" : "tab"} href="/app/services">
-              Services
-            </a>
+            <>
+              <a className={location.pathname.startsWith("/app/role-request") ? "tab tab-active" : "tab"} href="/app/role-request">
+                Role Access
+              </a>
+              <a className={location.pathname.startsWith("/app/services") ? "tab tab-active" : "tab"} href="/app/services">
+                Services
+              </a>
+            </>
           )}
           <button
             className="btn btn-logout"

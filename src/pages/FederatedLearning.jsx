@@ -86,6 +86,11 @@ export default function FederatedLearning() {
   const roles = user?.roles || [];
   const isOutputOwner = roles.includes('output-owner');
   const isDataProvider = roles.includes('data-provider');
+  // A user with no role (or any role other than data-provider) sees ONLY the
+  // plain output-owner configuration form â€” the rest of the owner workflow
+  // (provider selection, participation tracking, final model, report download)
+  // stays reserved for the actual output-owner role.
+  const canSeeOutputOwnerForm = isOutputOwner || !isDataProvider;
 
   // Data Provider form state
   const [dpFormData, setDpFormData] = useState({
@@ -454,8 +459,15 @@ export default function FederatedLearning() {
       if (governanceRes.submission_id) {
         localStorage.setItem('last_report_submission_id', governanceRes.submission_id);
       }
-      setMsg({ type: 'success', text: 'Configuration submitted. Now select the data providers to invite.' });
-      setCurrentStep('provider-selection');
+      // Provider selection (and the rest of the owner workflow) is reserved for
+      // the actual output-owner role â€” a no-role user's submission just confirms
+      // here and stays on the plain form.
+      if (isOutputOwner) {
+        setMsg({ type: 'success', text: 'Configuration submitted. Now select the data providers to invite.' });
+        setCurrentStep('provider-selection');
+      } else {
+        setMsg({ type: 'success', text: 'Configuration submitted.' });
+      }
     } catch (err) {
       console.error('[DEBUG] Config submit error:', err);
       setMsg({ type: 'error', text: err.message });
@@ -1149,21 +1161,15 @@ export default function FederatedLearning() {
           </div>
         )}
 
-        {/* Fallback for users without proper roles */}
-        {!isOutputOwner && !isDataProvider && (
-          <div style={{ padding: '20px', textAlign: 'center', color: '#666' }}>
-            <p>You need to request the <strong>output-owner</strong> or <strong>data-provider</strong> role to access Federated Learning.</p>
-            <p>Please go to the App page to request a role.</p>
-          </div>
-        )}
-
         {/* Output Owner View - Configuration Form */}
-        {isOutputOwner && currentStep === 'form' && (
+        {canSeeOutputOwnerForm && currentStep === 'form' && (
           <div>
             <h3 className="section-title">Federated Learning Configuration</h3>
 
             <div style={{ marginBottom: '16px', fontSize: '0.9rem', color: 'var(--text-light, #666)' }}>
-              Step 1 of 2 â€” fill in and submit your FL configuration. You'll select the data providers to invite next.
+              {isOutputOwner
+                ? "Step 1 of 2 â€” fill in and submit your FL configuration. You'll select the data providers to invite next."
+                : 'Fill in and submit your FL configuration.'}
             </div>
 
             <form onSubmit={handleFormSubmit}>
@@ -1223,7 +1229,9 @@ export default function FederatedLearning() {
                 <label>Port</label>
                 <input type="number" placeholder="e.g. 8080" min="1" max="65535" value={formData.port} onChange={(e) => setFormData({...formData, port: e.target.value})} />
               </div>
-              <button type="submit" className="btn btn-primary" style={{ marginTop: '10px' }}>Submit Configuration &amp; Select Providers</button>
+              <button type="submit" className="btn btn-primary" style={{ marginTop: '10px' }}>
+                {isOutputOwner ? 'Submit Configuration & Select Providers' : 'Submit Configuration'}
+              </button>
             </form>
           </div>
         )}

@@ -27,30 +27,6 @@ const SERVICE_DEFS = [
     },
   },
   {
-    title: "Sythetic Data Generation using Spider",
-    description:
-      "Generate synthetic datasets that preserve statistical properties while ensuring privacy.",
-    icon: <EyeOff size={22} />,
-    iconClass: "service-icon--blue",
-    cardClass: "service-card--blue",
-    roleRequired: false,
-    onClick: () => {
-      const token = localStorage.getItem("access_token");
-      const expiresIn = localStorage.getItem("expires_in") || "";
-      const refreshToken = localStorage.getItem("refresh_token") || "";
-
-      const params = new URLSearchParams();
-      if (token) params.set("access_token", token);
-      if (expiresIn) params.set("expires_in", String(expiresIn));
-      if (refreshToken) params.set("refresh_token", refreshToken);
-
-      const hash = params.toString();
-      window.location.assign(
-        hash ? `https://spider.p3dx.iudx.org.in/#${hash}` : "https://spider.p3dx.iudx.org.in/"
-      );
-    },
-  },
-  {
     title: "Federated Learning",
     description:
       "Train machine learning models across distributed datasets without centralising or exposing raw data.",
@@ -71,13 +47,13 @@ const SERVICE_DEFS = [
     navigate: "/app/services/smpc",
   },
   {
-    title: "Anonymization",
+    title: "TEE",
     description:
       "Run a workload inside a trusted execution environment (TEE) and get back anonymized data.",
     icon: <ShieldCheck size={22} />,
     iconClass: "service-icon--amber",
     cardClass: "service-card--amber",
-    roleRequired: false,
+    roleRequired: true,
     navigate: "/app/services/anon",
   },
 ];

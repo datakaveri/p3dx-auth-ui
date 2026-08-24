@@ -308,7 +308,7 @@ export default function WorkloadForm() {
         </div>
 
         {/* Generate button — this only builds and displays a contract. For
-            TEE it can then be submitted for a run via the button below. */}
+            TEE/SMPC it can then be submitted for a run via the button below. */}
         <button
           className="btn btn-primary"
           style={{ width: "100%", marginTop: 0 }}
@@ -340,14 +340,14 @@ export default function WorkloadForm() {
             </div>
             <div style={{ marginTop: 10 }}>
               <div className="label">Dataset</div>
-              <div className="value">{generatedContract.data_provider_terms?.dataset_name}</div>
+              <div className="value">{generatedContract.parties?.data_providers?.[0]?.dataset_name}</div>
             </div>
             <div style={{ marginTop: 10 }}>
               <div className="label">Parties</div>
               <div className="value" style={{ fontSize: 13 }}>
-                Consumer: {generatedContract.parties?.consumer?.id}<br />
-                Data Provider: {generatedContract.parties?.data_provider?.name}<br />
-                Application Provider: {generatedContract.parties?.application_provider?.name}
+                Consumer: {generatedContract.parties?.user?.id}<br />
+                Data Provider: {generatedContract.parties?.data_providers?.[0]?.name}<br />
+                Application Provider: {generatedContract.parties?.application_providers?.[0]?.name}
               </div>
             </div>
             <button
@@ -364,7 +364,7 @@ export default function WorkloadForm() {
               </pre>
             )}
 
-            {technique === "TEE" && (
+            {(technique === "TEE" || technique === "SMPC") && (
               <div style={{ marginTop: 14, borderTop: "1px solid var(--border-color)", paddingTop: 14 }}>
                 {(!teeSession || teeSession.status === "failed") && (
                   <>
@@ -387,9 +387,9 @@ export default function WorkloadForm() {
                       onClick={handleRunTee}
                     >
                       {isStartingRun ? (
-                        <><Loader2 size={14} className="spin" style={{ marginRight: 6 }} />Starting TEE session...</>
+                        <><Loader2 size={14} className="spin" style={{ marginRight: 6 }} />Starting {technique} session...</>
                       ) : (
-                        <><Play size={14} style={{ marginRight: 6 }} />Run TEE</>
+                        <><Play size={14} style={{ marginRight: 6 }} />Run {technique}</>
                       )}
                     </button>
                     <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-light)" }}>

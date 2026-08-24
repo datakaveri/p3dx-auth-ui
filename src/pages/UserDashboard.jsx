@@ -40,9 +40,10 @@ export default function UserDashboard() {
     }
   };
   const isSMPC = location.pathname.includes("/services/smpc");
-  // Technique threaded into the workload picker — only FL/SMPC are wired to
-  // contract generation today; /dp has no technique value to pass yet.
-  const technique = isSMPC ? "SMPC" : undefined;
+  const isTEE = location.pathname.includes("/services/anon");
+  // Technique threaded into the workload picker — only FL/SMPC/TEE are wired
+  // to contract generation today; /dp has no technique value to pass yet.
+  const technique = isSMPC ? "SMPC" : isTEE ? "TEE" : undefined;
 
   const DISPLAY_ROLES = ["user", "application-provider", "data-provider"];
   const displayRoles = roles.filter(r => DISPLAY_ROLES.includes(r));
@@ -51,6 +52,7 @@ export default function UserDashboard() {
     const path = location.pathname;
     if (path.includes("/services/fl")) return "Federated Learning";
     if (path.includes("/services/smpc")) return "SMPC";
+    if (path.includes("/services/anon")) return "TEE";
     if (path.includes("/services/dp")) return "Differential Privacy";
     return "Service";
   }, [location.pathname]);
@@ -154,7 +156,7 @@ export default function UserDashboard() {
         {keyError ? <div className="error-message">{keyError}</div> : null}
       </div>
 
-      {isSMPC && !hasApplicationProvider && !hasDataProvider ? (
+      {(isSMPC || isTEE) && !hasApplicationProvider && !hasDataProvider ? (
         <div style={{ marginBottom: "18px" }}>
           <button
             className="btn btn-primary"

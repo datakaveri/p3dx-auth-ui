@@ -8,7 +8,6 @@ import RoleRequest from "./pages/RoleRequest";
 import FederatedLearning from "./pages/FederatedLearning";
 import AdminDashboard from "./pages/AdminDashboard";
 import ServicesLanding from "./pages/ServicesLanding";
-import AnonService from "./pages/AnonService";
 import PolicyForm from "./pages/PolicyForm";
 import WorkloadForm from "./pages/WorkloadForm";
 import WorkloadResult from "./pages/WorkloadResult";
@@ -29,7 +28,7 @@ export const router = createBrowserRouter([
       { index: true, element: <div /> },
       { path: "role-request", element: <RoleRequest /> },
       { path: "services", element: <ServicesLanding /> },
-      { path: "services/anon", element: <AnonService /> },
+      { path: "services/anon", element: <UserDashboard /> },
       { path: "services/fl", element: <FederatedLearningDashboard /> },
       { path: "services/fl/federated-learning", element: <FederatedLearning /> },
       { path: "services/smpc", element: <UserDashboard /> },
