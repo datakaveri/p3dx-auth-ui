@@ -30,6 +30,7 @@ export default function AppShell() {
       })
       .catch(() => {
         localStorage.removeItem("access_token");
+        localStorage.removeItem("last_report_submission_id");
         navigate("/login", { replace: true });
       })
       .finally(() => {
@@ -131,6 +132,7 @@ export default function AppShell() {
             className="btn btn-logout"
             onClick={() => {
               localStorage.removeItem("access_token");
+              localStorage.removeItem("last_report_submission_id");
               navigate("/login");
             }}
             style={{ marginTop: 0 }}

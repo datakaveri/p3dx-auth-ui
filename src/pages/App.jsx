@@ -78,6 +78,7 @@ export default function App() {
       })
       .catch(() => {
         localStorage.removeItem("access_token");
+        localStorage.removeItem("last_report_submission_id");
         navigate("/login");
       });
   }, [navigate]);
@@ -112,6 +113,7 @@ export default function App() {
           className="btn btn-logout"
           onClick={() => {
             localStorage.removeItem("access_token");
+            localStorage.removeItem("last_report_submission_id");
             navigate("/login");
           }}
         >

@@ -10,7 +10,7 @@ export default defineConfig({
     host: true,
     open: false,
     proxy: {
-      '/api': 'http://localhost:8084',
+      '/api': 'http://localhost:8083',
       '/apd': { target: 'http://localhost:8091', rewrite: (path) => path.replace(/^\/apd/, '') },
     },
   },

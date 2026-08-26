@@ -68,7 +68,7 @@ export async function getMe(token) {
   return data;
 }
 
-export async function notifyProviders(selectedProviders, requestedProviders, outputOwnerId, submissionId, token) {
+export async function notifyProviders(selectedProviders, requestedProviders, outputOwnerId, submissionId, token, willingProviders = []) {
   const res = await fetch(`${BACKEND_URL}/p3dx/notify-providers`, {
     method: "POST",
     headers: {
@@ -78,6 +78,7 @@ export async function notifyProviders(selectedProviders, requestedProviders, out
     body: JSON.stringify({
       selected_providers: selectedProviders,
       requested_providers: requestedProviders,
+      willing_providers: willingProviders,
       output_owner_id: outputOwnerId,
       submission_id: submissionId,
       notified_at: new Date().toISOString(),

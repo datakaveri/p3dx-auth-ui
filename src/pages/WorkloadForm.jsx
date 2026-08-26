@@ -104,7 +104,12 @@ export default function WorkloadForm() {
         datasetId: selectedDatasetName,
         technique,
       });
-      setGeneratedContract(res?.contract || null);
+      const contract = res?.contract || null;
+      setGeneratedContract(contract);
+      // Policies set on the "Set Policy" page can carry a data URL for the
+      // dataset — prefill the run form with it so the consumer doesn't have
+      // to re-type a URL the provider already declared.
+      setDatasetUrl(contract?.parties?.data_providers?.[0]?.data_url || "");
     } catch (err) {
       setError(err.message || "Contract generation failed");
     } finally {
@@ -368,17 +373,11 @@ export default function WorkloadForm() {
               <div style={{ marginTop: 14, borderTop: "1px solid var(--border-color)", paddingTop: 14 }}>
                 {(!teeSession || teeSession.status === "failed") && (
                   <>
-                    <label className="label" style={{ display: "block", marginBottom: 6 }}>
-                      Dataset blob URL (https)
-                    </label>
-                    <input
-                      type="url"
-                      placeholder="https://anondata2.blob.core.windows.net/encrypted-data/..."
-                      value={datasetUrl}
-                      onChange={e => setDatasetUrl(e.target.value)}
-                      className="cat-search__input"
-                      style={{ width: "100%", marginBottom: 10, boxSizing: "border-box" }}
-                    />
+                    {!datasetUrl && (
+                      <div className="error-message" style={{ marginBottom: 10, fontSize: 13 }}>
+                        This dataset's policy has no data URL set — go to Set Policy and add one before running.
+                      </div>
+                    )}
                     <button
                       type="button"
                       className="btn btn-primary"
@@ -387,9 +386,9 @@ export default function WorkloadForm() {
                       onClick={handleRunTee}
                     >
                       {isStartingRun ? (
-                        <><Loader2 size={14} className="spin" style={{ marginRight: 6 }} />Starting {technique} session...</>
+                        <><Loader2 size={14} className="spin" style={{ marginRight: 6 }} />Starting TEE session...</>
                       ) : (
-                        <><Play size={14} style={{ marginRight: 6 }} />Run {technique}</>
+                        <><Play size={14} style={{ marginRight: 6 }} />Run TEE</>
                       )}
                     </button>
                     <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-light)" }}>

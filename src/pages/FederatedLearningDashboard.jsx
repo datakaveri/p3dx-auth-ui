@@ -24,14 +24,11 @@ export default function FederatedLearningDashboard() {
   const [respondingId, setRespondingId] = useState(null);
 
   const roles = useMemo(() => user?.roles || [], [user]);
-  const hasOutputOwner = roles.includes("output-owner");
   const hasDataProvider = roles.includes("data-provider");
-  // A user with no role (or any role other than data-provider) can open the
-  // plain output-owner form â€” only an explicit data-provider (without
-  // output-owner) is restricted to their own form. The rest of the owner
-  // workflow (provider selection, tracking, final model) still requires the
-  // actual output-owner role, enforced on the Federated Learning page itself.
-  const canSeeOutputOwnerForm = hasOutputOwner || !hasDataProvider;
+  // No separate "output-owner" role to request/approve â€” any logged-in user
+  // who isn't a data-provider gets the full owner workflow.
+  const hasOutputOwner = !hasDataProvider;
+  const canSeeOutputOwnerForm = hasOutputOwner;
 
   const serviceLabel = useMemo(() => {
     const path = location.pathname;
@@ -359,7 +356,7 @@ export default function FederatedLearningDashboard() {
                         )}
                       </div>
 
-                      {isRequest && (requestedList.length > 0 || selectedList.length > 0) && (
+                      {isRequest && (requestedList.length > 0 || selectedList.length > 0 || willingList.length > 0) && (
                         <div style={{ fontSize: "0.8rem", color: "var(--text-light, #555)", display: "flex", flexDirection: "column", gap: "2px" }}>
                           {requestedList.length > 0 && (
                             <div>
@@ -368,7 +365,12 @@ export default function FederatedLearningDashboard() {
                           )}
                           {selectedList.length > 0 && (
                             <div>
-                              <strong>Accepted by output owner ({selectedList.length}):</strong> {selectedList.map(p => p.username || p.id).join(", ")}
+                              <strong>Selected by output owner ({selectedList.length}):</strong> {selectedList.map(p => p.username || p.id).join(", ")}
+                            </div>
+                          )}
+                          {willingList.length > 0 && (
+                            <div>
+                              <strong>Willing so far ({willingList.length}):</strong> {willingList.map(p => p.username || p.id).join(", ")}
                             </div>
                           )}
                         </div>

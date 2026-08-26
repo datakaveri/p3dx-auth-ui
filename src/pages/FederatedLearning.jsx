@@ -1,7 +1,7 @@
-﻿import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { BACKEND_URL } from '../config';
-import { notifyProviders, getNotificationResponses, notifyRoster } from '../api/auth';
+import { notifyProviders, getNotificationResponses } from '../api/auth';
 
 const GOVERNANCE_LAYER_URL = `${BACKEND_URL}/p3dx/form-submissions`;
 const DATA_PROVIDER_FORM_URL = `${BACKEND_URL}/p3dx/data-provider-forms`;
@@ -84,13 +84,12 @@ export default function FederatedLearning() {
 
   // Check user roles
   const roles = user?.roles || [];
-  const isOutputOwner = roles.includes('output-owner');
   const isDataProvider = roles.includes('data-provider');
-  // A user with no role (or any role other than data-provider) sees ONLY the
-  // plain output-owner configuration form â€” the rest of the owner workflow
-  // (provider selection, participation tracking, final model, report download)
-  // stays reserved for the actual output-owner role.
-  const canSeeOutputOwnerForm = isOutputOwner || !isDataProvider;
+  // No separate "output-owner" role to request/approve â€” any logged-in user
+  // who isn't a data-provider gets the full owner workflow (provider
+  // selection, final model, report download).
+  const isOutputOwner = !isDataProvider;
+  const canSeeOutputOwnerForm = isOutputOwner;
 
   // Data Provider form state
   const [dpFormData, setDpFormData] = useState({
@@ -150,14 +149,9 @@ export default function FederatedLearning() {
   const [selectedProviders, setSelectedProviders] = useState([]);
   const [providersLoading, setProvidersLoading] = useState(true);
   const [providersError, setProvidersError] = useState(null);
-
-  // Participation responses from the providers this owner has notified.
-  const [responses, setResponses] = useState([]);
-  const [responsesLoading, setResponsesLoading] = useState(false);
-  const [sendingRoster, setSendingRoster] = useState(false);
+  // "Send Message" to selected providers, in flight flag.
   const [sendingMessage, setSendingMessage] = useState(false);
-  // "Invite Selected Providers" is unlocked only after the final roster is sent.
-  const [rosterSent, setRosterSent] = useState(false);
+
   // Final (highest-round) global model produced by the FL server for the session.
   const [finalModel, setFinalModel] = useState(null);
   const [finalModelLoading, setFinalModelLoading] = useState(false);
@@ -176,75 +170,6 @@ export default function FederatedLearning() {
     if (!ownerRamValid || v === null || v === undefined || v === '') return false;
     const n = Number(v);
     return Number.isFinite(n) && n <= ownerRam;
-  };
-
-  // Latest participation answer per provider, scoped to the CURRENT FL request so
-  // a re-login or a new round never shows a previous selection. With no active
-  // submission (e.g. right after login) the panel stays empty.
-  async function loadResponses(submissionId = reportSubmissionId, silent = false) {
-    const freshToken = localStorage.getItem('access_token') || token;
-    if (!freshToken || !submissionId) {
-      setResponses([]);
-      return;
-    }
-    if (!silent) setResponsesLoading(true);
-    try {
-      const res = await getNotificationResponses(freshToken);
-      // Scope to the providers messaged in the CURRENT round (persisted at send).
-      // submission_id is reused across rounds (form_id is reused), so without this
-      // gate, answers from earlier rounds and providers not selected this round
-      // would leak into the panel (e.g. an old "accepted" showing as Willing).
-      let roster = [];
-      try { roster = JSON.parse(localStorage.getItem('current_round_roster') || '[]'); } catch { roster = []; }
-      const rosterSet = new Set(roster);
-      const seen = new Set();
-      const latest = [];
-      for (const n of res.notifications || []) {
-        const payload = typeof n.payload === 'string'
-          ? (() => { try { return JSON.parse(n.payload || '{}'); } catch { return {}; } })()
-          : (n.payload || {});
-        // Only participation REQUESTS carry an accept/decline answer. Roster (and
-        // any other) notifications never have a response and, being created after
-        // the request, would otherwise mask the real answer in the newest-first
-        // dedupe below.
-        if (payload.kind !== 'participation_request') continue;
-        if (payload.submission_id !== submissionId) continue;   // only this request
-        if (!rosterSet.has(n.recipient_username)) continue;      // only this round's selected providers
-        if (seen.has(n.recipient_username)) continue;            // notifications are newest-first
-        seen.add(n.recipient_username);
-        latest.push(n);
-      }
-      setResponses(latest);
-    } catch (err) {
-      console.warn('Failed to load participation responses:', err);
-    } finally {
-      if (!silent) setResponsesLoading(false);
-    }
-  }
-
-  // Send the final participant roster to the selected providers: who is willing
-  // (accepted the request) and who was selected by the owner. Derived from the
-  // current participation responses.
-  const handleSendRoster = async () => {
-    const freshToken = localStorage.getItem('access_token') || token;
-    if (!responses.length) {
-      setMsg({ type: 'error', text: 'No participants yet â€” invite providers and wait for responses first.' });
-      return;
-    }
-    const selected = responses.map(r => ({ id: r.recipient_id, username: r.recipient_username }));
-    const willing = responses
-      .filter(r => r.response === 'accepted')
-      .map(r => ({ id: r.recipient_id, username: r.recipient_username }));
-    setSendingRoster(true);
-    try {
-      await notifyRoster(selected, willing, formData.output_owner_id, reportSubmissionId, freshToken);
-      setRosterSent(true); // unlocks "Invite Selected Providers"
-      setMsg({ type: 'success', text: `Roster sent to ${selected.length} selected provider(s) â€” ${willing.length} willing.` });
-    } catch (err) {
-      setMsg({ type: 'error', text: err.message });
-    } finally {
-      setSendingRoster(false);
-    }
   };
 
   // Fetch the CURRENT data-provider list (enriched with RAM). Reusable so the
@@ -348,20 +273,6 @@ export default function FederatedLearning() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, isOutputOwner]);
 
-  // Output owners: load participation responses for the current request and POLL
-  // so a provider's answer (accept/decline + note) appears in the panel
-  // automatically â€” no manual Refresh needed.
-  useEffect(() => {
-    if (!token || !isOutputOwner || !reportSubmissionId) {
-      setResponses([]);
-      return;
-    }
-    loadResponses(reportSubmissionId, true);
-    const h = setInterval(() => loadResponses(reportSubmissionId, true), 8000);
-    return () => clearInterval(h);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, isOutputOwner, reportSubmissionId]);
-
   // Drop any selected providers that stop meeting the RAM rule (e.g. after the
   // owner edits their RAM Usage back on the configuration step).
   useEffect(() => {
@@ -410,7 +321,7 @@ export default function FederatedLearning() {
       framework: formData.framework || undefined,
       components: Object.keys(comps).length ? comps : undefined,
       ram_usage: formData.ram_usage ? Number(formData.ram_usage) : undefined,
-      selected_providers: selected.map(p => ({ id: p.id, username: p.username, email: p.email })),
+      selected_providers: selected.map(p => p.username),
       ip_address: formData.ip_address || undefined,
       port: formData.port ? Number(formData.port) : undefined,
       filled: true,
@@ -474,65 +385,7 @@ export default function FederatedLearning() {
     }
   };
 
-  // Step 2a: send the FIRST message ("are you still willing to participate?") to
-  // the selected providers, and persist the selection so responses are scoped to
-  // it. Keeps the selection so the owner can then proceed to Invite.
-  const handleSendMessage = async () => {
-    const freshToken = localStorage.getItem("access_token") || token;
-
-    if (selectedProviders.length === 0) {
-      setMsg({ type: 'error', text: 'Please select at least one data provider first.' });
-      return;
-    }
-
-    // Accepted (selected) set for the notification recipients.
-    const providersPayload = selectedProviders.map(p => ({
-      id: p.id,
-      username: p.username,
-      email: p.email,
-      form_data: p.formData || {},
-    }));
-    // Everyone who advertised (requested to participate) â€” sent alongside the
-    // selected set so each notified provider sees who requested vs who was selected.
-    const requestedPayload = dataProviders.map(p => ({
-      id: p.id,
-      username: p.username,
-      email: p.email,
-    }));
-
-    setSendingMessage(true);
-    try {
-      const governanceRes = await submitOutputOwnerToGovernance(buildOwnerPayload(selectedProviders), freshToken);
-      const govSuccess = governanceRes.status?.toLowerCase() === 'success';
-      if (!govSuccess) {
-        setMsg({ type: 'error', text: `Governance: ${governanceRes.message || governanceRes.error || 'Failed'}` });
-        return;
-      }
-
-      setReportSubmissionId(governanceRes.submission_id);
-      if (governanceRes.submission_id) {
-        localStorage.setItem('last_report_submission_id', governanceRes.submission_id);
-      }
-
-      await notifyProviders(providersPayload, requestedPayload, formData.output_owner_id, governanceRes.submission_id, freshToken);
-      // A new round starts: the owner must send the final roster again before they
-      // can invite, so re-lock the invite button.
-      setRosterSent(false);
-      // Record exactly who was messaged this round so the responses panel shows
-      // only these providers (not leftovers from earlier rounds under the same id).
-      localStorage.setItem('current_round_roster', JSON.stringify(selectedProviders.map(p => p.username)));
-      // Refresh the responses panel so the newly-notified providers show as pending.
-      loadResponses(governanceRes.submission_id);
-      setMsg({ type: 'success', text: `Message sent to ${selectedProviders.length} selected provider(s). They can now respond in their dashboard.` });
-    } catch (err) {
-      setMsg({ type: 'error', text: err.message });
-    } finally {
-      setSendingMessage(false);
-    }
-  };
-
-  // Step 2b: finalize â€” persist the selection, submit to APD, and open the "send
-  // config" dialog. Does NOT message providers (that's "Send message" above).
+  // Persist the selection, submit to APD, and open the "send config" dialog.
   const handleConfirmProviders = async () => {
     const freshToken = localStorage.getItem("access_token") || token;
 
@@ -576,6 +429,52 @@ export default function FederatedLearning() {
     } catch(err) {
       console.error('[DEBUG] Provider submit error:', err);
       setMsg({ type: 'error', text: err.message });
+    }
+  };
+
+  // "Send Message": notify every currently-selected provider directly, without
+  // going through the full Invite flow (governance + APD + distribute dialog).
+  // The message tells each provider the full selected roster plus who among
+  // them has already responded "willing" (accepted), read back from this
+  // owner's previously-sent notifications so repeat sends show live status.
+  const handleSendMessage = async () => {
+    if (selectedProviders.length === 0) {
+      setMsg({ type: 'error', text: 'Select at least one data provider before sending a message.' });
+      return;
+    }
+    const freshToken = localStorage.getItem('access_token') || token;
+    setSendingMessage(true);
+    try {
+      let willingProviders = [];
+      try {
+        const responsesRes = await getNotificationResponses(freshToken);
+        const sent = Array.isArray(responsesRes.notifications) ? responsesRes.notifications : [];
+        const willingUsernames = new Set(
+          sent
+            .filter(n => n.response === 'accepted')
+            .filter(n => {
+              const payload = typeof n.payload === 'string' ? JSON.parse(n.payload || '{}') : (n.payload || {});
+              return !reportSubmissionId || payload.submission_id === reportSubmissionId;
+            })
+            .map(n => n.recipient_username)
+        );
+        willingProviders = selectedProviders.filter(p => willingUsernames.has(p.username));
+      } catch (err) {
+        console.warn('[DEBUG] Failed to load prior responses, sending without willing list:', err);
+      }
+
+      const providersPayload = selectedProviders.map(p => ({ id: p.id, username: p.username, email: p.email }));
+      await notifyProviders(providersPayload, providersPayload, formData.output_owner_id, reportSubmissionId, freshToken, willingProviders);
+
+      setMsg({
+        type: 'success',
+        text: `Message sent to ${selectedProviders.length} selected provider(s) — ${willingProviders.length} willing so far.`,
+      });
+    } catch (err) {
+      console.error('[DEBUG] Send message error:', err);
+      setMsg({ type: 'error', text: err.message });
+    } finally {
+      setSendingMessage(false);
     }
   };
 
@@ -769,69 +668,6 @@ export default function FederatedLearning() {
             >
               Download Selected Providers Report (JSON)
             </a>
-          </div>
-        )}
-
-        {/* Participation responses â€” each selected provider's answer to the
-            "are you still willing to participate?" request, with their reason. */}
-        {isOutputOwner && (
-          <div style={{ marginTop: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-              <h3 className="section-title" style={{ margin: 0 }}>Participation responses</h3>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  style={{ width: 'auto', padding: '4px 12px', fontSize: '0.8rem' }}
-                  onClick={loadResponses}
-                  disabled={responsesLoading}
-                >
-                  {responsesLoading ? 'Refreshingâ€¦' : 'Refresh'}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  style={{ width: 'auto', padding: '4px 12px', fontSize: '0.8rem' }}
-                  onClick={handleSendRoster}
-                  disabled={sendingRoster || responses.length === 0}
-                  title="Message the selected providers the final roster: who is willing and who was selected"
-                >
-                  {sendingRoster ? 'Sendingâ€¦' : 'Send final roster'}
-                </button>
-              </div>
-            </div>
-            {responses.length === 0 ? (
-              <div style={{ padding: '8px 0', color: 'var(--text-light, #888)', fontSize: '0.9rem' }}>
-                {responsesLoading ? 'Loadingâ€¦' : 'No providers notified yet. Submit a request to invite providers.'}
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
-                {responses.map((n) => {
-                  const status = n.response || 'pending';
-                  const color = status === 'accepted' ? 'var(--success-color, #27ae60)'
-                    : status === 'declined' ? '#e74c3c' : '#999';
-                  const label = status === 'accepted' ? 'âœ… Willing'
-                    : status === 'declined' ? 'âŒ Declined' : 'â³ Pending';
-                  return (
-                    <div key={n.id} style={{
-                      padding: '10px 14px', borderRadius: '8px',
-                      border: '1px solid var(--border-color, #ddd)',
-                      backgroundColor: 'var(--bg-light, #f8f9fa)',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-                        <span style={{ fontWeight: 500, color: 'var(--text-dark, #333)' }}>{n.recipient_username}</span>
-                        <span style={{ fontWeight: 600, color, whiteSpace: 'nowrap' }}>{label}</span>
-                      </div>
-                      {n.response_message && (
-                        <div style={{ marginTop: '4px', fontSize: '0.85rem', color: 'var(--text-light, #555)' }}>
-                          Note: {n.response_message}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </div>
         )}
 
@@ -1130,33 +966,32 @@ export default function FederatedLearning() {
             </div>
 
             <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'flex-start' }}>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleSendMessage}
-                disabled={sendingMessage || selectedProviders.length === 0}
-                style={{ width: 'auto' }}
-                title="Send the first message (are you still willing to participate?) to the selected providers"
-              >
-                {sendingMessage ? 'Sendingâ€¦' : 'Send message'}
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={handleConfirmProviders}
-                disabled={selectedProviders.length === 0 || !rosterSent}
-                style={{ width: 'auto' }}
-                title={rosterSent
-                  ? 'Finalize: save the selection and open the config-distribution dialog'
-                  : 'Send the final roster first to enable inviting'}
-              >
-                Invite Selected Providers
-              </button>
-              {!rosterSent && (
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-light, #777)' }}>
-                  Send the final roster first to enable â€œInvite Selected Providersâ€.
-                </span>
-              )}
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleConfirmProviders}
+                  disabled={selectedProviders.length === 0}
+                  style={{ width: 'auto' }}
+                  title="Save the selection and open the config-distribution dialog"
+                >
+                  Invite Selected Providers
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleSendMessage}
+                  disabled={selectedProviders.length === 0 || sendingMessage}
+                  style={{ width: 'auto' }}
+                  title="Notify the selected providers who's selected and who's willing so far"
+                >
+                  {sendingMessage ? 'Sending…' : 'Send Message'}
+                </button>
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-light, #666)' }}>
+                Sends every selected provider a message listing who's selected and who has
+                already responded willing to participate.
+              </div>
             </div>
           </div>
         )}
