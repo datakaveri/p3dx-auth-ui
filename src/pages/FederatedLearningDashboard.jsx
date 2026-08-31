@@ -356,11 +356,35 @@ export default function FederatedLearningDashboard() {
                         )}
                       </div>
 
-                      {isRequest && (requestedList.length > 0 || selectedList.length > 0 || willingList.length > 0) && (
-                        <div style={{ fontSize: "0.8rem", color: "var(--text-light, #555)", display: "flex", flexDirection: "column", gap: "2px" }}>
+                      {isRequest && (requestedList.length > 0 || selectedList.length > 0) && (() => {
+                        const willingKeys = new Set(willingList.map(p => p.username || p.id));
+                        return (
+                        <div style={{ fontSize: "0.8rem", color: "var(--text-light, #555)", display: "flex", flexDirection: "column", gap: "4px" }}>
                           {requestedList.length > 0 && (
                             <div>
-                              <strong>Requested to participate ({requestedList.length}):</strong> {requestedList.map(p => p.username || p.id).join(", ")}
+                              <strong>Requested to participate ({requestedList.length}):</strong>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px" }}>
+                                {requestedList.map((p, i) => {
+                                  const key = p.username || p.id;
+                                  const isWilling = willingKeys.has(key);
+                                  return (
+                                    <span
+                                      key={key || i}
+                                      title={isWilling ? "Willing to participate" : "Not confirmed willing yet"}
+                                      style={{
+                                        padding: "2px 10px",
+                                        borderRadius: "10px",
+                                        fontSize: "0.75rem",
+                                        fontWeight: 500,
+                                        color: "white",
+                                        backgroundColor: isWilling ? "var(--success-color, #27ae60)" : "#e74c3c",
+                                      }}
+                                    >
+                                      {key}
+                                    </span>
+                                  );
+                                })}
+                              </div>
                             </div>
                           )}
                           {selectedList.length > 0 && (
@@ -368,13 +392,9 @@ export default function FederatedLearningDashboard() {
                               <strong>Selected by output owner ({selectedList.length}):</strong> {selectedList.map(p => p.username || p.id).join(", ")}
                             </div>
                           )}
-                          {willingList.length > 0 && (
-                            <div>
-                              <strong>Willing so far ({willingList.length}):</strong> {willingList.map(p => p.username || p.id).join(", ")}
-                            </div>
-                          )}
                         </div>
-                      )}
+                        );
+                      })()}
 
                       {isRoster && (willingList.length > 0 || selectedList.length > 0) && (
                         <div style={{ fontSize: "0.8rem", color: "var(--text-light, #555)", display: "flex", flexDirection: "column", gap: "2px" }}>

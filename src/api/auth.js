@@ -159,6 +159,21 @@ export async function notifyRoster(selectedProviders, willingProviders, outputOw
   return data;
 }
 
+// Output owner: read back the stored FL session contract (draft before Final
+// Roster, finalized after) for a submission id, so it can be viewed in the UI.
+export async function getSessionContract(sessionId, token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/contract/${encodeURIComponent(sessionId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (res.status === 404) return null;
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to fetch session contract");
+  }
+  return data;
+}
+
 // Output owner: fetch the participation responses for notifications this user
 // sent (each selected provider's accepted/declined status + reason).
 export async function getNotificationResponses(token) {

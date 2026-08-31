@@ -1,40 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { BACKEND_URL } from '../config';
-import { notifyProviders, getNotificationResponses } from '../api/auth';
+import { notifyProviders, getNotificationResponses, notifyRoster, getSessionContract } from '../api/auth';
 
 const GOVERNANCE_LAYER_URL = `${BACKEND_URL}/p3dx/form-submissions`;
 const DATA_PROVIDER_FORM_URL = `${BACKEND_URL}/p3dx/data-provider-forms`;
-const APD_URL = `${BACKEND_URL}/p3dx/form-submissions`;
 
 // Send Output Owner details to Governance Layer
 async function submitOutputOwnerToGovernance(payload, token) {
   const res = await fetch(GOVERNANCE_LAYER_URL, {
     method: 'POST',
-    headers: { 
+    headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}` 
+      'Authorization': `Bearer ${token}`
     },
     body: JSON.stringify({ payload })
-  });
-  return res.json();
-}
-
-// Send selected Data Providers to APD
-async function submitSelectedProvidersToAPD(selectedProviders, token) {
-  const res = await fetch(APD_URL, {
-    method: 'POST',
-    headers: { 
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}` 
-    },
-    body: JSON.stringify({ 
-      form_id: 'selected-providers-001',
-      payload: {
-        selected_data_providers: selectedProviders,
-        submitted_at: new Date().toISOString()
-      }
-    })
   });
   return res.json();
 }
@@ -78,6 +58,24 @@ async function submitDataProviderFormToBackend(payload, token) {
   return res.json();
 }
 
+// Derive the pending/willing/declined status for a notified provider from
+// their latest participation response. Shared by the "Selected Data-Providers"
+// panel and the provider checklist so both render identical badges.
+function providerStatus(providerResponse) {
+  if (providerResponse?.response === 'accepted') {
+    return { key: 'willing', label: 'Willing' };
+  }
+  if (providerResponse?.response === 'declined') {
+    return { key: 'declined', label: 'Not willing' };
+  }
+  return { key: 'pending', label: 'Pending' };
+}
+
+// Two-letter avatar initials from a username.
+function initials(name) {
+  return (name || '').slice(0, 2).toUpperCase();
+}
+
 export default function FederatedLearning() {
   const { user, token } = useOutletContext();
   const navigate = useNavigate();
@@ -85,7 +83,7 @@ export default function FederatedLearning() {
   // Check user roles
   const roles = user?.roles || [];
   const isDataProvider = roles.includes('data-provider');
-  // No separate "output-owner" role to request/approve â€” any logged-in user
+  // No separate "output-owner" role to request/approve - any logged-in user
   // who isn't a data-provider gets the full owner workflow (provider
   // selection, final model, report download).
   const isOutputOwner = !isDataProvider;
@@ -126,7 +124,7 @@ export default function FederatedLearning() {
   const [msg, setMsg] = useState(null);
   // Persist the last submission id so the report stays downloadable after a page reload.
   const [reportSubmissionId, setReportSubmissionId] = useState(
-    () => localStorage.getItem('last_report_submission_id') || null
+    () => sessionStorage.getItem('last_report_submission_id') || null
   );
 
   // "Send config to data providers" popup state (shown after a successful submit).
@@ -149,13 +147,36 @@ export default function FederatedLearning() {
   const [selectedProviders, setSelectedProviders] = useState([]);
   const [providersLoading, setProvidersLoading] = useState(true);
   const [providersError, setProvidersError] = useState(null);
+  // Each selected provider's participation response so far, keyed by
+  // username: { response: 'accepted' | 'declined', message }. Read back from
+  // this owner's previously-sent notifications so the selection list shows
+  // live willing/not-willing status next to each provider.
+  const [providerResponses, setProviderResponses] = useState({});
   // "Send Message" to selected providers, in flight flag.
   const [sendingMessage, setSendingMessage] = useState(false);
+  // Providers that have actually been notified via "Send Message" so far -
+  // this is what the "Selected Data-Providers" panel shows (pending until
+  // they respond), decoupled from the live checkbox selection so it survives
+  // Clear All / Invite (which resets the checkboxes).
+  const [notifiedProviders, setNotifiedProviders] = useState([]);
+  // Manual "Refresh" on the Selected Data-Providers panel, in flight flag.
+  const [refreshingResponses, setRefreshingResponses] = useState(false);
+  // "Final Roster" - announcing the confirmed participants, in flight flag.
+  const [sendingRoster, setSendingRoster] = useState(false);
+  // Gates "Start FL Session" - only unlocked once the owner has sent the
+  // final roster announcement to the confirmed participants.
+  const [finalRosterSent, setFinalRosterSent] = useState(false);
+  // "View Contract" - the stored session contract (draft or finalized), shown
+  // on demand rather than polled.
+  const [contract, setContract] = useState(null);
+  const [contractOpen, setContractOpen] = useState(false);
+  const [contractLoading, setContractLoading] = useState(false);
+  const [contractError, setContractError] = useState(null);
 
   // Final (highest-round) global model produced by the FL server for the session.
   const [finalModel, setFinalModel] = useState(null);
   const [finalModelLoading, setFinalModelLoading] = useState(false);
-  // Readable summary of the final model (layers/shapes/params) â€” shown on "Open".
+  // Readable summary of the final model (layers/shapes/params) - shown on "Open".
   const [modelSummary, setModelSummary] = useState(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
@@ -206,7 +227,7 @@ export default function FederatedLearning() {
       if (!data) {
         setSummaryError(
           res.status === 404
-            ? 'Model reader not available yet â€” restart the governance layer to load the /final-model/summary endpoint.'
+            ? 'Model reader not available yet - restart the governance layer to load the /final-model/summary endpoint.'
             : `Unexpected response (HTTP ${res.status}).`
         );
       } else if (data.status === 'SUCCESS') {
@@ -222,7 +243,7 @@ export default function FederatedLearning() {
   };
 
   const fetchDataProviders = useCallback(async (silent = false) => {
-    const freshToken = localStorage.getItem('access_token') || token;
+    const freshToken = sessionStorage.getItem('access_token') || token;
     if (!freshToken) return;
     if (!silent) setProvidersLoading(true);
     setProvidersError(null);
@@ -244,27 +265,79 @@ export default function FederatedLearning() {
     }
   }, [token]);
 
+  // Re-read this owner's previously-sent notifications and pull out each
+  // recipient's latest willing/not-willing response (with reason), so the
+  // provider-selection list can show live status next to each provider.
+  const fetchProviderResponses = useCallback(async () => {
+    const freshToken = sessionStorage.getItem('access_token') || token;
+    if (!freshToken) return;
+    try {
+      const res = await getNotificationResponses(freshToken);
+      const sent = Array.isArray(res.notifications) ? res.notifications : [];
+      const map = {};
+      sent
+        .filter(n => {
+          const payload = typeof n.payload === 'string' ? JSON.parse(n.payload || '{}') : (n.payload || {});
+          // Only actual consent requests carry a real accept/decline status.
+          // "final_roster" is a one-way done-deal announcement (never has a
+          // response) - including it here would let it override a genuine
+          // accepted answer and flip the badge back to pending.
+          if (payload.kind && payload.kind !== 'participation_request') return false;
+          return !reportSubmissionId || payload.submission_id === reportSubmissionId;
+        })
+        .forEach(n => {
+          // Newest-first, so the FIRST notification seen per recipient is their
+          // most recent invite for this session - whether or not it's been
+          // answered yet. A stale "accepted" from an earlier invite must not
+          // leak through once a newer, unanswered invite has been sent.
+          if (!(n.recipient_username in map)) {
+            map[n.recipient_username] = n.response
+              ? { response: n.response, message: n.response_message }
+              : null;
+          }
+        });
+      setProviderResponses(map);
+    } catch (err) {
+      console.warn('[DEBUG] Failed to load provider responses:', err);
+    }
+  }, [token, reportSubmissionId]);
+
+  // Manual refresh for the "Selected Data-Providers" panel - re-pulls
+  // responses immediately instead of waiting for the background poll.
+  const refreshProviderResponses = async () => {
+    setRefreshingResponses(true);
+    try {
+      await fetchProviderResponses();
+    } finally {
+      setRefreshingResponses(false);
+    }
+  };
+
   // Load on mount, and re-pull whenever the owner enters the provider-selection
   // step so newly-registered/withdrawn providers are reflected (not stale).
   useEffect(() => {
     if (token && (currentStep === 'provider-selection' || dataProviders.length === 0)) {
       fetchDataProviders();
     }
+    if (token && currentStep === 'provider-selection') {
+      fetchProviderResponses();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, currentStep]);
 
   // While the owner is on the provider-selection step, poll so a provider who
-  // requests (submits their form) appears automatically â€” and one whose request
-  // goes stale drops off â€” without a manual Refresh. Silent to avoid UI flicker.
+  // requests (submits their form) appears automatically - and one whose request
+  // goes stale drops off, and responses stay live - without a manual Refresh.
+  // Silent to avoid UI flicker.
   useEffect(() => {
     if (!token || currentStep !== 'provider-selection') return;
-    const h = setInterval(() => fetchDataProviders(true), 6000);
+    const h = setInterval(() => { fetchDataProviders(true); fetchProviderResponses(); }, 6000);
     return () => clearInterval(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, currentStep]);
 
   // Output owners: load the final model on mount and poll so it appears once the
-  // FL server finishes writing the final round's checkpoint â€” no manual refresh.
+  // FL server finishes writing the final round's checkpoint - no manual refresh.
   useEffect(() => {
     if (!token || !isOutputOwner) return;
     loadFinalModel(true);
@@ -340,7 +413,7 @@ export default function FederatedLearning() {
       requested_at: new Date().toISOString(),
       filled_at: new Date().toISOString()
     };
-    const freshToken = localStorage.getItem("access_token") || token;
+    const freshToken = sessionStorage.getItem("access_token") || token;
     try {
       const data = await submitDataProviderFormToBackend(obj, freshToken);
       setMsg({ type: data.status === 'SUCCESS' ? 'success' : 'error', text: data.status === 'SUCCESS' ? 'Data Provider form submitted successfully!' : (data.error || 'Error saving form') });
@@ -354,7 +427,7 @@ export default function FederatedLearning() {
   // step 2 updates this same submission with the chosen providers.
   const handleFormSubmit = async (e) => {
     e.preventDefault();
-    const freshToken = localStorage.getItem("access_token") || token;
+    const freshToken = sessionStorage.getItem("access_token") || token;
 
     try {
       const governanceRes = await submitOutputOwnerToGovernance(buildOwnerPayload([]), freshToken);
@@ -368,10 +441,10 @@ export default function FederatedLearning() {
 
       setReportSubmissionId(governanceRes.submission_id);
       if (governanceRes.submission_id) {
-        localStorage.setItem('last_report_submission_id', governanceRes.submission_id);
+        sessionStorage.setItem('last_report_submission_id', governanceRes.submission_id);
       }
       // Provider selection (and the rest of the owner workflow) is reserved for
-      // the actual output-owner role â€” a no-role user's submission just confirms
+      // the actual output-owner role - a no-role user's submission just confirms
       // here and stays on the plain form.
       if (isOutputOwner) {
         setMsg({ type: 'success', text: 'Configuration submitted. Now select the data providers to invite.' });
@@ -385,66 +458,21 @@ export default function FederatedLearning() {
     }
   };
 
-  // Persist the selection, submit to APD, and open the "send config" dialog.
-  const handleConfirmProviders = async () => {
-    const freshToken = localStorage.getItem("access_token") || token;
-
-    if (selectedProviders.length === 0) {
-      setMsg({ type: 'error', text: 'Please select at least one data provider to invite.' });
-      return;
-    }
-
-    // Prepare selected providers for APD.
-    const providersPayload = selectedProviders.map(p => ({
-      id: p.id,
-      username: p.username,
-      email: p.email,
-      form_data: p.formData || {},
-    }));
-
-    try {
-      const governanceRes = await submitOutputOwnerToGovernance(buildOwnerPayload(selectedProviders), freshToken);
-      console.log('[DEBUG] Governance response (providers):', governanceRes);
-
-      const govSuccess = governanceRes.status?.toLowerCase() === 'success';
-      if (!govSuccess) {
-        setMsg({ type: 'error', text: `Governance: ${governanceRes.message || governanceRes.error || 'Failed'}` });
-        return;
-      }
-
-      // Send to APD in parallel (non-blocking for the user)
-      submitSelectedProvidersToAPD(providersPayload, freshToken)
-        .then(r => console.log('[DEBUG] APD response:', r))
-        .catch(e => console.warn('[DEBUG] APD submission failed:', e));
-
-      setReportSubmissionId(governanceRes.submission_id);
-      if (governanceRes.submission_id) {
-        localStorage.setItem('last_report_submission_id', governanceRes.submission_id);
-      }
-      setMsg({ type: 'success', text: `Invited ${selectedProviders.length} data provider(s).` });
-      // Pop up the "send config to providers" dialog now that we have a submission id.
-      setDistributeResult(null);
-      setShowDistribute(true);
-      clearSelection();
-    } catch(err) {
-      console.error('[DEBUG] Provider submit error:', err);
-      setMsg({ type: 'error', text: err.message });
-    }
-  };
-
-  // "Send Message": notify every currently-selected provider directly, without
-  // going through the full Invite flow (governance + APD + distribute dialog).
-  // The message tells each provider the full selected roster plus who among
-  // them has already responded "willing" (accepted), read back from this
-  // owner's previously-sent notifications so repeat sends show live status.
+  // "Send Message": notify only the providers currently checked in "Select
+  // Participating Data Providers". The message tells each of them the selected
+  // roster plus who among them has already responded "willing" (accepted),
+  // read back from this owner's previously-sent notifications so repeat sends
+  // show live status.
   const handleSendMessage = async () => {
     if (selectedProviders.length === 0) {
       setMsg({ type: 'error', text: 'Select at least one data provider before sending a message.' });
       return;
     }
-    const freshToken = localStorage.getItem('access_token') || token;
+    const freshToken = sessionStorage.getItem('access_token') || token;
     setSendingMessage(true);
     try {
+      const selectedPayload = selectedProviders.map(p => ({ id: p.id, username: p.username, email: p.email }));
+
       let willingProviders = [];
       try {
         const responsesRes = await getNotificationResponses(freshToken);
@@ -458,17 +486,26 @@ export default function FederatedLearning() {
             })
             .map(n => n.recipient_username)
         );
-        willingProviders = selectedProviders.filter(p => willingUsernames.has(p.username));
+        willingProviders = selectedPayload.filter(p => willingUsernames.has(p.username));
       } catch (err) {
         console.warn('[DEBUG] Failed to load prior responses, sending without willing list:', err);
       }
 
-      const providersPayload = selectedProviders.map(p => ({ id: p.id, username: p.username, email: p.email }));
-      await notifyProviders(providersPayload, providersPayload, formData.output_owner_id, reportSubmissionId, freshToken, willingProviders);
+      await notifyProviders(selectedPayload, selectedPayload, formData.output_owner_id, reportSubmissionId, freshToken, willingProviders);
+
+      // Add the just-notified providers to the "Selected Data-Providers" panel
+      // (dedup by id so re-sending doesn't create duplicates).
+      setNotifiedProviders(prev => {
+        const next = [...prev];
+        selectedProviders.forEach(p => {
+          if (!next.find(np => np.id === p.id)) next.push(p);
+        });
+        return next;
+      });
 
       setMsg({
         type: 'success',
-        text: `Message sent to ${selectedProviders.length} selected provider(s) — ${willingProviders.length} willing so far.`,
+        text: `Message sent to ${selectedPayload.length} selected provider(s) - ${willingProviders.length} willing so far.`,
       });
     } catch (err) {
       console.error('[DEBUG] Send message error:', err);
@@ -478,15 +515,80 @@ export default function FederatedLearning() {
     }
   };
 
+  // "Final Roster": once providers have weighed in, announce the confirmed
+  // participant list - only those who responded "willing" so far - to those
+  // same willing providers. A done-deal notice, not another accept/decline ask.
+  const handleSendFinalRoster = async () => {
+    const willing = notifiedProviders.filter(p => providerResponses[p.username]?.response === 'accepted');
+    if (willing.length === 0) {
+      setMsg({ type: 'error', text: 'No data provider has confirmed willing yet - nothing to send.' });
+      return;
+    }
+    const freshToken = sessionStorage.getItem('access_token') || token;
+    setSendingRoster(true);
+    try {
+      const willingPayload = willing.map(p => ({ id: p.id, username: p.username, email: p.email }));
+      const selectedPayload = notifiedProviders.map(p => ({ id: p.id, username: p.username, email: p.email }));
+      const res = await notifyRoster(selectedPayload, willingPayload, formData.output_owner_id, reportSubmissionId, freshToken);
+      setFinalRosterSent(true);
+      if (res?.contract) {
+        setContract(res.contract);
+        setContractError(null);
+      }
+      const contractNote = res?.contract_id
+        ? ` Contract ${res.contract_id} generated from APD provider forms.`
+        : res?.contract_error
+          ? ` (Contract generation failed: ${res.contract_error})`
+          : '';
+      setMsg({
+        type: 'success',
+        text: `Final roster sent - ${willingPayload.length} participating provider(s) notified: ${willing.map(p => p.username).join(', ')}.${contractNote}`,
+      });
+    } catch (err) {
+      console.error('[DEBUG] Final roster error:', err);
+      setMsg({ type: 'error', text: err.message });
+    } finally {
+      setSendingRoster(false);
+    }
+  };
+
+  // "View Contract": read back the stored session contract (draft before Final
+  // Roster, finalized after) so the owner can inspect who's on it.
+  const handleViewContract = async () => {
+    if (contractOpen) { setContractOpen(false); return; }
+    if (!reportSubmissionId) {
+      setContractError('No submission found yet - submit your configuration first.');
+      setContractOpen(true);
+      return;
+    }
+    setContractOpen(true);
+    setContractError(null);
+    setContractLoading(true);
+    try {
+      const freshToken = sessionStorage.getItem('access_token') || token;
+      const data = await getSessionContract(reportSubmissionId, freshToken);
+      if (data?.contract) {
+        setContract(data.contract);
+      } else {
+        setContract(null);
+        setContractError('No contract has been generated for this session yet - send the Final Roster first.');
+      }
+    } catch (err) {
+      setContractError(err.message);
+    } finally {
+      setContractLoading(false);
+    }
+  };
+
   // Owner-side: download/preview the rendered config (output-owner IP in MQTT
   // broker_host + gRPC host) that the selected providers will pull.
   const handleDownloadConfig = async () => {
-    const id = reportSubmissionId || localStorage.getItem('last_report_submission_id');
+    const id = reportSubmissionId || sessionStorage.getItem('last_report_submission_id');
     if (!id) {
       setDistributeResult({ ok: false, text: 'No submission found. Submit the request first.' });
       return;
     }
-    const freshToken = localStorage.getItem('access_token') || token;
+    const freshToken = sessionStorage.getItem('access_token') || token;
     setDownloading(true);
     setDistributeResult(null);
     const r = await fetchClientConfig(`/api/v1/client-config/by-submission/${encodeURIComponent(id)}`, freshToken);
@@ -502,12 +604,12 @@ export default function FederatedLearning() {
   // Owner-side: PUSH the rendered config over HTTP to each selected provider's
   // receiver (ip:port from their registration form). gov_layer does the POSTs.
   const handlePushConfig = async () => {
-    const id = reportSubmissionId || localStorage.getItem('last_report_submission_id');
+    const id = reportSubmissionId || sessionStorage.getItem('last_report_submission_id');
     if (!id) {
       setDistributeResult({ ok: false, text: 'No submission found. Submit the request first.' });
       return;
     }
-    const freshToken = localStorage.getItem('access_token') || token;
+    const freshToken = sessionStorage.getItem('access_token') || token;
     setPushing(true);
     setDistributeResult(null);
     try {
@@ -519,11 +621,11 @@ export default function FederatedLearning() {
       const data = await res.json();
       const s = data.summary || { sent: 0, failed: 0, skipped: 0 };
       const details = (data.results || []).map(
-        r => `â€¢ ${r.username} (${r.ip || '?'}:${r.port || '?'}) â€” ${r.status}${r.reason ? ': ' + r.reason : ''}${r.http ? ' [HTTP ' + r.http + ']' : ''}`
+        r => `- ${r.username} (${r.ip || '?'}:${r.port || '?'}) - ${r.status}${r.reason ? ': ' + r.reason : ''}${r.http ? ' [HTTP ' + r.http + ']' : ''}`
       );
       setDistributeResult({
         ok: data.status === 'SUCCESS',
-        text: data.message || `Push complete â€” sent ${s.sent}, failed ${s.failed}, skipped ${s.skipped}.`,
+        text: data.message || `Push complete - sent ${s.sent}, failed ${s.failed}, skipped ${s.skipped}.`,
         details,
       });
     } catch (e) {
@@ -533,17 +635,17 @@ export default function FederatedLearning() {
     }
   };
 
-  // Owner-side: bring up the FL run for this submission â€” gov_layer creates the
+  // Owner-side: bring up the FL run for this submission - gov_layer creates the
   // owner venv (+ server requirements) and launches flo_server.py on the owner, then
   // provisions each provider's venv (+ client requirements) and launches
   // flo_client.py on each provider. flo_session.py is launched in a later step.
   const handleStartFlSession = async () => {
-    const id = reportSubmissionId || localStorage.getItem('last_report_submission_id');
+    const id = reportSubmissionId || sessionStorage.getItem('last_report_submission_id');
     if (!id) {
       setDistributeResult({ ok: false, text: 'No submission found. Submit the request first.' });
       return;
     }
-    const freshToken = localStorage.getItem('access_token') || token;
+    const freshToken = sessionStorage.getItem('access_token') || token;
     setStartingSession(true);
     setDistributeResult(null);
     try {
@@ -557,17 +659,17 @@ export default function FederatedLearning() {
         const p = data.provision?.summary || { ok: 0, failed: 0, skipped: 0 };
         const c = data.clients?.summary || { started: 0, failed: 0, skipped: 0 };
         const provDetails = (data.provision?.results || []).map(
-          r => `â€¢ env ${r.username} (${r.ip || '?'}:${r.port || '?'}) â€” ${r.status}${r.reason ? ': ' + r.reason : ''}`
+          r => `- env ${r.username} (${r.ip || '?'}:${r.port || '?'}) - ${r.status}${r.reason ? ': ' + r.reason : ''}`
         );
         const clientDetails = (data.clients?.results || []).map(
-          r => `â€¢ client ${r.username} (${r.ip || '?'}:${r.port || '?'}) â€” ${r.status}${r.reason ? ': ' + r.reason : ''}`
+          r => `- client ${r.username} (${r.ip || '?'}:${r.port || '?'}) - ${r.status}${r.reason ? ': ' + r.reason : ''}`
         );
         const sess = data.session?.status === 'started'
           ? `Session started (flo_session.py pid ${data.session.pid}, after ${Math.round((data.session.waited_ms ?? 0) / 1000)}s wait).`
           : `Session: ${data.session?.detail || 'not started'}.`;
         setDistributeResult({
           ok: true,
-          text: `Owner ${data.owner?.url ?? ''} up â€” flo_server.py pid ${data.server?.pid ?? '?'}. Provider envs: ok ${p.ok}, failed ${p.failed}, skipped ${p.skipped}. Clients: started ${c.started}, failed ${c.failed}, skipped ${c.skipped}. ${sess}`,
+          text: `Owner ${data.owner?.url ?? ''} up - flo_server.py pid ${data.server?.pid ?? '?'}. Provider envs: ok ${p.ok}, failed ${p.failed}, skipped ${p.skipped}. Clients: started ${c.started}, failed ${c.failed}, skipped ${c.skipped}. ${sess}`,
           details: [
             ...(data.server?.log ? [`server log: ${data.server.log} @ ${data.owner?.url ?? 'owner'}`] : []),
             ...provDetails,
@@ -587,12 +689,12 @@ export default function FederatedLearning() {
 
   // Data-provider side: pull this provider's own client config from the gov layer.
   const downloadMyConfig = async () => {
-    const freshToken = localStorage.getItem('access_token') || token;
+    const freshToken = sessionStorage.getItem('access_token') || token;
     setDpConfigMsg(null);
     const r = await fetchClientConfig(`/api/v1/client-config/${encodeURIComponent(user?.username || '')}`, freshToken);
     if (r.ok) {
       triggerBlobDownload(r.text, 'client_config.yaml');
-      setDpConfigMsg({ type: 'success', text: 'Client config downloaded â€” MQTT broker host & gRPC host point to the output owner.' });
+      setDpConfigMsg({ type: 'success', text: 'Client config downloaded - MQTT broker host & gRPC host point to the output owner.' });
     } else {
       setDpConfigMsg({ type: 'error', text: r.message });
     }
@@ -600,7 +702,7 @@ export default function FederatedLearning() {
 
   return (
     <div>
-      {/* Send-config popup â€” appears after a successful FL request submission. */}
+      {/* Send-config popup - appears after a successful FL request submission. */}
       {showDistribute && (
         <div className="modal-overlay" role="dialog" aria-modal="true">
           <div className="modal">
@@ -614,10 +716,10 @@ export default function FederatedLearning() {
               (to the IP &amp; Port from their registration form) and updates their client_config.yaml.
               Or download the exact file to inspect it.
               {distributeResult && (
-                <div style={{ marginTop: '12px', fontWeight: 500, color: distributeResult.ok ? 'var(--success-color, #27ae60)' : '#e74c3c' }}>
+                <div className={`fl-result-banner ${distributeResult.ok ? 'fl-result-banner--ok' : 'fl-result-banner--error'}`}>
                   {distributeResult.text}
                   {distributeResult.details && distributeResult.details.length > 0 && (
-                    <ul style={{ margin: '8px 0 0', paddingLeft: '18px', fontWeight: 400, fontSize: '13px', color: 'var(--text-light)' }}>
+                    <ul>
                       {distributeResult.details.map((d, i) => <li key={i}>{d}</li>)}
                     </ul>
                   )}
@@ -629,13 +731,13 @@ export default function FederatedLearning() {
                 Close
               </button>
               <button className="btn btn-secondary" style={{ width: 'auto' }} onClick={handleDownloadConfig} disabled={downloading}>
-                {downloading ? 'Workingâ€¦' : 'Download Config (YAML)'}
+                {downloading ? 'Working...' : 'Download Config (YAML)'}
               </button>
               <button className="btn btn-primary" style={{ width: 'auto' }} onClick={handlePushConfig} disabled={pushing}>
-                {pushing ? 'Sendingâ€¦' : 'Send to Providers'}
+                {pushing ? 'Sending...' : 'Send to Providers'}
               </button>
               <button className="btn btn-primary" style={{ width: 'auto' }} onClick={handleStartFlSession} disabled={startingSession}>
-                {startingSession ? 'Startingâ€¦' : 'Start FL Session'}
+                {startingSession ? 'Starting...' : 'Start FL Session'}
               </button>
             </div>
           </div>
@@ -644,66 +746,87 @@ export default function FederatedLearning() {
 
       <div className="page-header">
         <div className="page-header-title">
-          <h3 className="section-title" style={{ marginBottom: 0 }}>Federated Learning</h3>
-          <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
+          <h3 className="section-title" style={{ marginBottom: 0 }}>
+            <span className="fl-section-icon">&#9889;</span>Federated Learning
+          </h3>
+          <div style={{ color: 'var(--text-light)', fontSize: '14px' }}>
             Configure federated learning parameters and select data providers
           </div>
         </div>
       </div>
 
-      <div className="card" style={{ marginTop: "20px" }}>
+      <div className="card" style={{ marginTop: '20px' }}>
         {msg && (
-          <div className={msg.type === 'success' ? 'info-banner' : 'error-message'} style={msg.type === 'success' ? { backgroundColor: 'var(--success-color, #27ae60)', color: 'white' } : {}}>{msg.text}</div>
+          <div
+            className={msg.type === 'success' ? 'fl-result-banner fl-result-banner--ok' : 'fl-result-banner fl-result-banner--error'}
+            style={{ marginTop: 0, marginBottom: '18px' }}
+          >
+            {msg.text}
+          </div>
         )}
 
-        {/* Report download â€” available any time a session has been submitted.
+        {/* Report download - available any time a session has been submitted.
             The report is persisted in the governance DB, so it survives page reloads. */}
         {isOutputOwner && reportSubmissionId && (
-          <div style={{ marginTop: '10px' }}>
+          <div style={{ marginBottom: '4px' }}>
             <a
               href={`/api/v1/form-submissions/${reportSubmissionId}/report`}
               download={`fl_session_${reportSubmissionId}.json`}
               className="btn btn-secondary"
-              style={{ display: 'inline-block', textDecoration: 'none' }}
+              style={{ display: 'inline-flex', width: 'auto', textDecoration: 'none' }}
             >
               Download Selected Providers Report (JSON)
             </a>
           </div>
         )}
 
-        {/* Final model â€” the aggregated global model from the last training round. */}
+        {/* Final model - the aggregated global model from the last training round. */}
         {isOutputOwner && (
-          <div style={{ marginTop: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-              <h3 className="section-title" style={{ margin: 0 }}>Final model</h3>
+          <div className="fl-section">
+            <div className="fl-section-header">
+              <div className="fl-section-header-text">
+                <h3 className="section-title"><span className="fl-section-icon">&#9670;</span>Final Model</h3>
+                <span className="fl-section-sub">The aggregated global model from this session's last training round</span>
+              </div>
               <button
                 type="button"
                 className="btn btn-secondary"
-                style={{ width: 'auto', padding: '4px 12px', fontSize: '0.8rem' }}
+                style={{ width: 'auto', padding: '6px 14px', fontSize: '0.85rem' }}
                 onClick={() => loadFinalModel(false)}
                 disabled={finalModelLoading}
               >
-                {finalModelLoading ? 'Refreshingâ€¦' : 'Refresh'}
+                {finalModelLoading ? 'Refreshing...' : 'Refresh'}
               </button>
             </div>
             {!finalModel ? (
-              <div style={{ padding: '8px 0', color: 'var(--text-light, #888)', fontSize: '0.9rem' }}>
-                {finalModelLoading ? 'Loadingâ€¦' : 'No trained model yet â€” it appears here once the FL session finishes its final round.'}
+              <div className="fl-empty">
+                {finalModelLoading ? 'Loading...' : "No trained model yet - it appears here once the FL session finishes its final round."}
               </div>
             ) : (
-              <div style={{
-                marginTop: '8px', padding: '12px 14px', borderRadius: '8px',
-                border: '1px solid var(--border-color, #ddd)', backgroundColor: 'var(--bg-light, #f8f9fa)',
-                display: 'flex', flexDirection: 'column', gap: '6px',
-              }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '2px 10px', fontSize: '0.85rem', color: 'var(--text-light, #555)' }}>
-                  <span style={{ color: '#888' }}>Session</span><span><code>{finalModel.session_id}</code></span>
-                  <span style={{ color: '#888' }}>Final round</span><span>{finalModel.round}</span>
-                  <span style={{ color: '#888' }}>Size</span><span>{(finalModel.size_bytes / 1024).toFixed(1)} KB</span>
-                  <span style={{ color: '#888' }}>File</span><span><code>{finalModel.file}</code></span>
-                  <span style={{ color: '#888' }}>Updated</span><span>{new Date(finalModel.modified_at).toLocaleString()}</span>
+              <div className="card" style={{ padding: '16px' }}>
+                <div className="fl-model-meta">
+                  <div className="fl-model-meta-item">
+                    <div className="fl-model-meta-item__label">Session</div>
+                    <div className="fl-model-meta-item__value"><code>{finalModel.session_id}</code></div>
+                  </div>
+                  <div className="fl-model-meta-item">
+                    <div className="fl-model-meta-item__label">Final Round</div>
+                    <div className="fl-model-meta-item__value">{finalModel.round}</div>
+                  </div>
+                  <div className="fl-model-meta-item">
+                    <div className="fl-model-meta-item__label">Size</div>
+                    <div className="fl-model-meta-item__value">{(finalModel.size_bytes / 1024).toFixed(1)} KB</div>
+                  </div>
+                  <div className="fl-model-meta-item">
+                    <div className="fl-model-meta-item__label">File</div>
+                    <div className="fl-model-meta-item__value"><code>{finalModel.file}</code></div>
+                  </div>
+                  <div className="fl-model-meta-item">
+                    <div className="fl-model-meta-item__label">Updated</div>
+                    <div className="fl-model-meta-item__value">{new Date(finalModel.modified_at).toLocaleString()}</div>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
+                <div className="fl-action-row" style={{ marginTop: '14px' }}>
                   <button
                     type="button"
                     className="btn btn-primary"
@@ -711,7 +834,7 @@ export default function FederatedLearning() {
                     onClick={openFinalModel}
                     disabled={summaryLoading}
                   >
-                    {summaryLoading ? 'Readingâ€¦' : summaryOpen ? 'Hide Final Model' : 'Open Final Model'}
+                    {summaryLoading ? 'Reading...' : summaryOpen ? 'Hide Final Model' : 'Open Final Model'}
                   </button>
                   <a
                     className="btn btn-secondary"
@@ -725,42 +848,42 @@ export default function FederatedLearning() {
                 </div>
 
                 {summaryOpen && (
-                  <div style={{ marginTop: '10px' }}>
+                  <div style={{ marginTop: '14px' }}>
                     {summaryError ? (
-                      <div style={{ color: '#e74c3c', fontSize: '0.85rem' }}>âš  {summaryError}</div>
+                      <div className="fl-result-banner fl-result-banner--error">&#9888; {summaryError}</div>
                     ) : summaryLoading ? (
-                      <div style={{ color: 'var(--text-light, #888)', fontSize: '0.9rem' }}>Reading modelâ€¦</div>
+                      <div className="fl-section-sub">Reading model...</div>
                     ) : modelSummary ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <div style={{ fontSize: '0.85rem', color: 'var(--text-dark, #333)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <div style={{ fontSize: '0.85rem', color: 'var(--text-dark)' }}>
                           <strong>{modelSummary.format}</strong>
-                          {' â€” '}{modelSummary.num_tensors} tensors,{' '}
+                          {' - '}{modelSummary.num_tensors} tensors,{' '}
                           <strong>{Number(modelSummary.total_params || 0).toLocaleString()}</strong> parameters
                         </div>
-                        <div style={{ overflowX: 'auto', border: '1px solid var(--border-color, #ddd)', borderRadius: '6px' }}>
-                          <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.82rem' }}>
+                        <div className="cat-table-wrap">
+                          <table className="cat-table">
                             <thead>
-                              <tr style={{ background: 'var(--bg-light, #f1f1f4)', textAlign: 'left' }}>
-                                <th style={{ padding: '6px 10px' }}>Layer</th>
-                                <th style={{ padding: '6px 10px' }}>dtype</th>
-                                <th style={{ padding: '6px 10px' }}>shape</th>
-                                <th style={{ padding: '6px 10px', textAlign: 'right' }}>params</th>
+                              <tr>
+                                <th>Layer</th>
+                                <th>dtype</th>
+                                <th>shape</th>
+                                <th style={{ textAlign: 'right' }}>params</th>
                               </tr>
                             </thead>
                             <tbody>
                               {(modelSummary.layers || []).map((l, i) => (
-                                <tr key={i} style={{ borderTop: '1px solid var(--border-color, #eee)' }}>
-                                  <td style={{ padding: '5px 10px', fontFamily: 'monospace' }}>{l.name}</td>
-                                  <td style={{ padding: '5px 10px' }}>{l.dtype}</td>
-                                  <td style={{ padding: '5px 10px', fontFamily: 'monospace' }}>[{(l.shape || []).join(', ')}]</td>
-                                  <td style={{ padding: '5px 10px', textAlign: 'right' }}>{Number(l.params || 0).toLocaleString()}</td>
+                                <tr key={i}>
+                                  <td style={{ fontFamily: 'monospace' }}>{l.name}</td>
+                                  <td>{l.dtype}</td>
+                                  <td style={{ fontFamily: 'monospace' }}>[{(l.shape || []).join(', ')}]</td>
+                                  <td style={{ textAlign: 'right' }}>{Number(l.params || 0).toLocaleString()}</td>
                                 </tr>
                               ))}
                             </tbody>
                           </table>
                         </div>
                         {modelSummary.sample && (
-                          <div style={{ fontSize: '0.8rem', color: 'var(--text-light, #555)' }}>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>
                             <strong>Sample weights</strong> ({modelSummary.sample.layer}, {modelSummary.sample.dtype}):{' '}
                             <code>[{(modelSummary.sample.values || []).join(', ')}]</code>
                           </div>
@@ -776,9 +899,14 @@ export default function FederatedLearning() {
 
         {/* Data Provider View */}
         {isDataProvider && !isOutputOwner && (
-          <div>
-            <h3 className="section-title">Data Provider Form</h3>
-            <form onSubmit={handleDataProviderSubmit}>
+          <div className="fl-section">
+            <div className="fl-section-header">
+              <div className="fl-section-header-text">
+                <h3 className="section-title"><span className="fl-section-icon">&#9671;</span>Data Provider Form</h3>
+                <span className="fl-section-sub">Register your dataset so output owners can find and invite you</span>
+              </div>
+            </div>
+            <form onSubmit={handleDataProviderSubmit} className="fl-form-grid">
               <div className="form-group">
                 <label>Form ID</label>
                 <input value={dpFormData.form_id} onChange={(e) => setDpFormData({...dpFormData, form_id: e.target.value})} />
@@ -823,19 +951,21 @@ export default function FederatedLearning() {
                 <label>Port</label>
                 <input type="number" placeholder="e.g. 8080" min="1" max="65535" value={dpFormData.port} onChange={(e) => setDpFormData({...dpFormData, port: e.target.value})} />
               </div>
-              <button type="submit" className="btn btn-primary" style={{ marginTop: '10px' }}>Submit Data Provider Form</button>
+              <div className="form-group form-group--wide" style={{ marginTop: '4px' }}>
+                <button type="submit" className="btn btn-primary" style={{ width: 'auto' }}>Submit Data Provider Form</button>
+              </div>
             </form>
 
-            <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #eee' }}>
-              <button type="button" className="btn btn-secondary" onClick={downloadMyConfig}>
+            <div className="fl-section">
+              <button type="button" className="btn btn-secondary" style={{ width: 'auto' }} onClick={downloadMyConfig}>
                 Download My Client Config (YAML)
               </button>
               {dpConfigMsg && (
-                <div style={{ marginTop: '8px', fontSize: '0.9rem', color: dpConfigMsg.type === 'success' ? 'var(--success-color, #27ae60)' : '#e74c3c' }}>
+                <div className={dpConfigMsg.type === 'success' ? 'fl-result-banner fl-result-banner--ok' : 'fl-result-banner fl-result-banner--error'}>
                   {dpConfigMsg.text}
                 </div>
               )}
-              <div style={{ marginTop: '6px', fontSize: '0.8rem', color: '#888' }}>
+              <div className="fl-footnote">
                 Available once an output owner has selected you in a session.
               </div>
             </div>
@@ -844,34 +974,166 @@ export default function FederatedLearning() {
 
         {/* Output Owner View - Provider Selection */}
         {isOutputOwner && currentStep === 'provider-selection' && (
-          <div>
-            <h3 className="section-title">Select Participating Data Providers</h3>
-
-            <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'rgba(108, 99, 255, 0.1)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-              <span style={{ fontSize: '0.9rem', color: 'var(--text-dark, #333)' }}>
-                Step 2 of 2 â€” configuration submitted{formData.form_id ? ` (${formData.form_id})` : ''}. Choose the providers to invite.
-              </span>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={handleEditConfiguration}
-                style={{ width: 'auto', padding: '4px 12px', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
-              >
-                Edit Configuration
-              </button>
+          <div className="fl-section">
+            <div className="fl-section-header">
+              <div className="fl-section-header-text">
+                <h3 className="section-title"><span className="fl-section-icon">&#10003;</span>Selected Data-Providers</h3>
+                <span className="fl-section-sub">
+                  {notifiedProviders.length > 0
+                    ? `${notifiedProviders.length} provider(s) messaged for this session`
+                    : 'Providers you message below will appear here with their live status'}
+                </span>
+              </div>
+              <div className="fl-section-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleEditConfiguration}
+                  style={{ width: 'auto', padding: '6px 14px', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
+                >
+                  Edit Configuration
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ width: 'auto', padding: '6px 14px', fontSize: '0.85rem' }}
+                  onClick={refreshProviderResponses}
+                  disabled={refreshingResponses}
+                >
+                  {refreshingResponses ? 'Refreshing...' : 'Refresh'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ width: 'auto', padding: '6px 14px', fontSize: '0.85rem' }}
+                  onClick={handleSendFinalRoster}
+                  disabled={sendingRoster || notifiedProviders.every(p => providerResponses[p.username]?.response !== 'accepted')}
+                  title="Send a final message to every provider who has confirmed willing, listing who's participating"
+                >
+                  {sendingRoster ? 'Sending...' : 'Final Roster'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ width: 'auto', padding: '6px 14px', fontSize: '0.85rem' }}
+                  onClick={handleViewContract}
+                  disabled={contractLoading || !reportSubmissionId}
+                  title="View the session contract built from the Final Roster"
+                >
+                  {contractLoading ? 'Loading...' : contractOpen ? 'Hide Contract' : 'View Contract'}
+                </button>
+              </div>
             </div>
+            {contractOpen && (
+              <div className="card" style={{ padding: '16px', marginBottom: '16px' }}>
+                {contractError ? (
+                  <div className="fl-result-banner fl-result-banner--error" style={{ marginTop: 0 }}>&#9888; {contractError}</div>
+                ) : !contract ? (
+                  <div className="fl-section-sub">Loading contract...</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    <div className="fl-model-meta">
+                      <div className="fl-model-meta-item">
+                        <div className="fl-model-meta-item__label">Contract ID</div>
+                        <div className="fl-model-meta-item__value"><code>{contract.contract_id}</code></div>
+                      </div>
+                      <div className="fl-model-meta-item">
+                        <div className="fl-model-meta-item__label">Version</div>
+                        <div className="fl-model-meta-item__value">{contract.version} {contract.version === 2 ? '(finalized)' : '(draft)'}</div>
+                      </div>
+                      <div className="fl-model-meta-item">
+                        <div className="fl-model-meta-item__label">Output Owner</div>
+                        <div className="fl-model-meta-item__value">{contract.parties?.user?.name}</div>
+                      </div>
+                      <div className="fl-model-meta-item">
+                        <div className="fl-model-meta-item__label">Valid Until</div>
+                        <div className="fl-model-meta-item__value">{contract.lifecycle?.valid_until ? new Date(contract.lifecycle.valid_until).toLocaleString() : '-'}</div>
+                      </div>
+                    </div>
 
-            <div className="form-group">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <label>
-                  Select Participating Data Providers
-                  {selectedProviders.length > 0 && (
-                    <span style={{ marginLeft: '10px', fontSize: '0.8rem', color: 'var(--primary-color, #6c63ff)', fontWeight: 400 }}>
-                      ({selectedProviders.length} selected)
-                    </span>
-                  )}
-                </label>
-                <div style={{ display: 'flex', gap: '8px' }}>
+                    <div>
+                      <div className="fl-section-sub" style={{ marginBottom: '8px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '11px' }}>
+                        Data Provider Parties ({(contract.parties?.data_providers || []).length})
+                      </div>
+                      <div className="cat-table-wrap">
+                        <table className="cat-table">
+                          <thead>
+                            <tr>
+                              <th>Provider</th>
+                              <th>Dataset</th>
+                              <th>Data URL</th>
+                              <th>Signed</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(contract.parties?.data_providers || []).map((dp, i) => (
+                              <tr key={dp.id || i}>
+                                <td>{dp.name}</td>
+                                <td>{dp.dataset_name || <span style={{ color: 'var(--text-light)' }}>-</span>}</td>
+                                <td style={{ fontFamily: 'monospace', fontSize: '11px' }}>{dp.data_url || <span style={{ color: 'var(--text-light)' }}>-</span>}</td>
+                                <td>
+                                  {dp.signature?.signed_at ? (
+                                    <span className="fl-status-badge fl-status-badge--willing"><span className="fl-status-dot" />Signed</span>
+                                  ) : (
+                                    <span className="fl-status-badge fl-status-badge--pending"><span className="fl-status-dot" />Unsigned</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="fl-section-sub" style={{ marginBottom: '8px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '11px' }}>
+                        Raw Contract JSON
+                      </div>
+                      <pre className="code-block" style={{ maxHeight: '320px', overflow: 'auto' }}>{JSON.stringify(contract, null, 2)}</pre>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            {notifiedProviders.length === 0 ? (
+              <div className="fl-empty">
+                No data providers messaged yet - select providers below and click "Send Message".
+              </div>
+            ) : (
+              <div className="fl-provider-list">
+                {notifiedProviders.map(provider => {
+                  const providerResponse = providerResponses[provider.username];
+                  const status = providerStatus(providerResponse);
+                  return (
+                    <div key={provider.id} className={`fl-provider-card fl-provider-card--${status.key}`}>
+                      <div className="fl-provider-identity">
+                        <div className="fl-provider-avatar">{initials(provider.username)}</div>
+                        <div>
+                          <div className="fl-provider-name">{provider.username}</div>
+                          <div className="fl-provider-email">{provider.email}</div>
+                          {status.key === 'declined' && providerResponse?.message && (
+                            <div className="fl-decline-reason"><strong>Reason:</strong> {providerResponse.message}</div>
+                          )}
+                        </div>
+                      </div>
+                      <span className={`fl-status-badge fl-status-badge--${status.key}`}>
+                        <span className="fl-status-dot" />{status.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="fl-section">
+              <div className="fl-section-header">
+                <div className="fl-section-header-text">
+                  <h3 className="section-title"><span className="fl-section-icon">&#9776;</span>Select Participating Data Providers</h3>
+                  <span className="fl-section-sub">
+                    {selectedProviders.length > 0 ? `${selectedProviders.length} selected` : 'Choose which providers to invite'}
+                  </span>
+                </div>
+                <div className="fl-section-actions">
                   <button
                     type="button"
                     className="btn btn-secondary"
@@ -879,7 +1141,7 @@ export default function FederatedLearning() {
                     onClick={fetchDataProviders}
                     disabled={providersLoading}
                   >
-                    {providersLoading ? 'Refreshingâ€¦' : 'Refresh'}
+                    {providersLoading ? 'Refreshing...' : 'Refresh'}
                   </button>
                   <button
                     type="button"
@@ -892,39 +1154,32 @@ export default function FederatedLearning() {
                   </button>
                 </div>
               </div>
-              <div style={{ marginTop: '6px', fontSize: '0.8rem', color: 'var(--text-light, #666)' }}>
-                Only providers whose <strong>RAM Usage â‰¤ your RAM Usage</strong>
-                {ownerRamValid ? ` (${ownerRam} MB)` : ''} can be selected â€” eligible providers are green, the rest red.
+              <div className="fl-hint">
+                Only providers whose <strong>RAM Usage &le; your RAM Usage</strong>
+                {ownerRamValid ? ` (${ownerRam} MB)` : ''} can be selected - eligible providers are green, the rest red.
               </div>
               {!ownerRamValid && (
-                <div style={{ marginTop: '6px', padding: '8px', borderRadius: '6px', backgroundColor: 'rgba(231, 76, 60, 0.1)', color: '#e74c3c', fontSize: '0.85rem' }}>
-                  âš  Set <strong>RAM Usage</strong> in your configuration to compare against providers (use â€œEdit Configurationâ€ above).
+                <div className="fl-result-banner fl-result-banner--error" style={{ marginTop: 0, marginBottom: '12px' }}>
+                  &#9888; Set <strong>RAM Usage</strong> in your configuration to compare against providers (use "Edit Configuration" above).
                 </div>
               )}
               {providersLoading && (
-                <div style={{ padding: '12px', color: '#888', fontSize: '0.9rem' }}>Loading data providers...</div>
+                <div className="fl-empty">Loading data providers...</div>
               )}
               {providersError && (
-                <div style={{ padding: '8px', color: '#e74c3c', fontSize: '0.85rem' }}>âš  {providersError}</div>
+                <div className="fl-result-banner fl-result-banner--error" style={{ marginTop: 0 }}>&#9888; {providersError}</div>
               )}
               {!providersLoading && !providersError && dataProviders.length === 0 && (
-                <div style={{ padding: '12px', color: '#888', fontSize: '0.9rem' }}>No data providers registered yet.</div>
+                <div className="fl-empty">No data providers registered yet.</div>
               )}
               {!providersLoading && dataProviders.length > 0 && (
-                <div style={{
-                  border: '2px solid var(--primary-color, #6c63ff)',
-                  borderRadius: '8px',
-                  maxHeight: '200px',
-                  overflowY: 'auto',
-                  padding: '8px',
-                  marginTop: '8px'
-                }}>
+                <div className="fl-provider-scroll fl-provider-list">
                   {dataProviders.map(provider => {
                     const isSelected = !!selectedProviders.find(p => p.id === provider.id);
                     const eligible = providerEligible(provider);
                     const hasRam = provider.ram_usage !== null && provider.ram_usage !== undefined && provider.ram_usage !== '';
-                    const green = 'var(--success-color, #27ae60)';
-                    const red = '#e74c3c';
+                    const providerResponse = providerResponses[provider.username];
+                    const cardModifier = !eligible ? 'ineligible' : isSelected ? 'selected' : 'eligible';
                     return (
                       <div
                         key={provider.id}
@@ -932,32 +1187,35 @@ export default function FederatedLearning() {
                         title={eligible ? '' : (ownerRamValid
                           ? `RAM Usage ${hasRam ? Number(provider.ram_usage) + ' MB' : 'not provided'} exceeds your ${ownerRam} MB`
                           : 'Set your RAM Usage in the configuration to compare')}
-                        style={{
-                          padding: '10px',
-                          margin: '4px 0',
-                          border: `2px solid ${eligible ? (isSelected ? 'var(--primary-color, #6c63ff)' : green) : red}`,
-                          borderRadius: '6px',
-                          cursor: eligible ? 'pointer' : 'not-allowed',
-                          opacity: eligible ? 1 : 0.7,
-                          backgroundColor: eligible
-                            ? (isSelected ? 'rgba(108, 99, 255, 0.12)' : 'rgba(39, 174, 96, 0.08)')
-                            : 'rgba(231, 76, 60, 0.08)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between'
-                        }}
+                        className={`fl-provider-card fl-provider-card--clickable fl-provider-card--${cardModifier}`}
                       >
-                        <div>
-                          <div style={{ fontWeight: 500 }}>{provider.username}</div>
-                          <div style={{ fontSize: '0.85rem', color: '#666' }}>{provider.email}</div>
-                          <div style={{ fontSize: '0.8rem', color: eligible ? green : red, marginTop: '2px' }}>
-                            RAM Usage: {hasRam ? `${Number(provider.ram_usage)} MB` : 'not provided'}
-                            {' â€” '}{eligible ? 'eligible' : 'exceeds your RAM Usage'}
+                        <div className="fl-provider-identity">
+                          <div className="fl-provider-avatar">{initials(provider.username)}</div>
+                          <div>
+                            <div className="fl-provider-name">{provider.username}</div>
+                            <div className="fl-provider-email">{provider.email}</div>
+                            <div className={`fl-provider-meta ${eligible ? 'fl-provider-meta--ok' : 'fl-provider-meta--bad'}`}>
+                              RAM Usage: {hasRam ? `${Number(provider.ram_usage)} MB` : 'not provided'}
+                              {' - '}{eligible ? 'eligible' : 'exceeds your RAM Usage'}
+                            </div>
                           </div>
                         </div>
-                        {isSelected && eligible && (
-                          <span style={{ color: 'var(--primary-color, #6c63ff)', fontSize: '1.2rem' }}>âœ“</span>
-                        )}
+                        <div className="fl-provider-side">
+                          {isSelected && eligible && (
+                            <span className="fl-check">&#10003;</span>
+                          )}
+                          {providerResponse && (() => {
+                            const status = providerStatus(providerResponse);
+                            return (
+                              <span
+                                title={status.key === 'declined' && providerResponse.message ? `Reason: ${providerResponse.message}` : ''}
+                                className={`fl-status-badge fl-status-badge--${status.key}`}
+                              >
+                                <span className="fl-status-dot" />{status.label}
+                              </span>
+                            );
+                          })()}
+                        </div>
                       </div>
                     );
                   })}
@@ -965,18 +1223,8 @@ export default function FederatedLearning() {
               )}
             </div>
 
-            <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'flex-start' }}>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={handleConfirmProviders}
-                  disabled={selectedProviders.length === 0}
-                  style={{ width: 'auto' }}
-                  title="Save the selection and open the config-distribution dialog"
-                >
-                  Invite Selected Providers
-                </button>
+            <div className="fl-section">
+              <div className="fl-action-row">
                 <button
                   type="button"
                   className="btn btn-secondary"
@@ -985,29 +1233,56 @@ export default function FederatedLearning() {
                   style={{ width: 'auto' }}
                   title="Notify the selected providers who's selected and who's willing so far"
                 >
-                  {sendingMessage ? 'Sending…' : 'Send Message'}
+                  {sendingMessage ? 'Sending...' : 'Send Message'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleStartFlSession}
+                  disabled={startingSession || !reportSubmissionId || !finalRosterSent}
+                  style={{ width: 'auto' }}
+                  title={finalRosterSent
+                    ? "Provision and launch the FL server + selected providers' clients for this submission"
+                    : 'Send the Final Roster first to unlock this'}
+                >
+                  {startingSession ? 'Starting...' : 'Start FL Session'}
                 </button>
               </div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-light, #666)' }}>
+              <div className="fl-footnote">
                 Sends every selected provider a message listing who's selected and who has
-                already responded willing to participate.
+                already responded willing to participate. "Start FL Session" unlocks once
+                you've sent the Final Roster, and launches the server and every participating
+                provider's client for this submission.
               </div>
+              {distributeResult && (
+                <div className={`fl-result-banner ${distributeResult.ok ? 'fl-result-banner--ok' : 'fl-result-banner--error'}`}>
+                  {distributeResult.text}
+                  {distributeResult.details && distributeResult.details.length > 0 && (
+                    <ul>
+                      {distributeResult.details.map((d, i) => <li key={i}>{d}</li>)}
+                    </ul>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
 
         {/* Output Owner View - Configuration Form */}
         {canSeeOutputOwnerForm && currentStep === 'form' && (
-          <div>
-            <h3 className="section-title">Federated Learning Configuration</h3>
-
-            <div style={{ marginBottom: '16px', fontSize: '0.9rem', color: 'var(--text-light, #666)' }}>
-              {isOutputOwner
-                ? "Step 1 of 2 â€” fill in and submit your FL configuration. You'll select the data providers to invite next."
-                : 'Fill in and submit your FL configuration.'}
+          <div className="fl-section">
+            <div className="fl-section-header">
+              <div className="fl-section-header-text">
+                <h3 className="section-title"><span className="fl-section-icon">&#9881;</span>Federated Learning Configuration</h3>
+                <span className="fl-section-sub">
+                  {isOutputOwner
+                    ? "Step 1 of 2 - fill in and submit your FL configuration. You'll select the data providers to invite next."
+                    : 'Fill in and submit your FL configuration.'}
+                </span>
+              </div>
             </div>
 
-            <form onSubmit={handleFormSubmit}>
+            <form onSubmit={handleFormSubmit} className="fl-form-grid">
               <div className="form-group">
                 <label>Form ID</label>
                 <input value={formData.form_id} onChange={(e) => setFormData({...formData, form_id: e.target.value})} />
@@ -1048,7 +1323,7 @@ export default function FederatedLearning() {
                 <label>Framework</label>
                 <input value={formData.framework} onChange={(e) => setFormData({...formData, framework: e.target.value})} />
               </div>
-              <div className="form-group">
+              <div className="form-group form-group--wide">
                 <label>Components (comma-separated key=value pairs)</label>
                 <input
                   value={formData.components}
@@ -1064,9 +1339,11 @@ export default function FederatedLearning() {
                 <label>Port</label>
                 <input type="number" placeholder="e.g. 8080" min="1" max="65535" value={formData.port} onChange={(e) => setFormData({...formData, port: e.target.value})} />
               </div>
-              <button type="submit" className="btn btn-primary" style={{ marginTop: '10px' }}>
-                {isOutputOwner ? 'Submit Configuration & Select Providers' : 'Submit Configuration'}
-              </button>
+              <div className="form-group form-group--wide" style={{ marginTop: '4px' }}>
+                <button type="submit" className="btn btn-primary" style={{ width: 'auto' }}>
+                  {isOutputOwner ? 'Submit Configuration & Select Providers' : 'Submit Configuration'}
+                </button>
+              </div>
             </form>
           </div>
         )}

@@ -20,7 +20,7 @@ export default function App() {
   const [adminFilter, setAdminFilter] = useState("pending");
   const navigate = useNavigate();
 
-  const token = localStorage.getItem("access_token");
+  const token = sessionStorage.getItem("access_token");
   const roles = user?.roles || [];
   const isAdmin = roles.includes("admin");
 
@@ -77,8 +77,8 @@ export default function App() {
         }
       })
       .catch(() => {
-        localStorage.removeItem("access_token");
-        localStorage.removeItem("last_report_submission_id");
+        sessionStorage.removeItem("access_token");
+        sessionStorage.removeItem("last_report_submission_id");
         navigate("/login");
       });
   }, [navigate]);
@@ -112,8 +112,8 @@ export default function App() {
         <button
           className="btn btn-logout"
           onClick={() => {
-            localStorage.removeItem("access_token");
-            localStorage.removeItem("last_report_submission_id");
+            sessionStorage.removeItem("access_token");
+            sessionStorage.removeItem("last_report_submission_id");
             navigate("/login");
           }}
         >
