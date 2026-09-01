@@ -29,11 +29,16 @@ export default function InfraPolicyForm() {
     name: "",
     region: "",
     providerId: "",
-    providerEmail: "",
+    // Prefilled from the logged-in user's own account — still editable, in
+    // case the submitting person differs from the provider contact.
+    providerEmail: user?.email || "",
 
     platformProvider: PLATFORM_PROVIDERS[0].id,
     executionEnvironment: "sgx",
 
+    // "cluster" matches the deployment_model this form always submitted
+    // before this field existed ("kubernetes") — see onSubmit below.
+    computeType: "cluster",
     cpuCores: 64,
     ramMb: 262144,
     storageGb: 2048,
@@ -92,9 +97,9 @@ export default function InfraPolicyForm() {
           region: form.region,
           platform: {
             provider: form.platformProvider,
-            // Fixed for now — Phase 1 assumes a cloud-native k8s deployment
-            // (see the workflow doc); bare-metal (Phase 3) isn't modeled yet.
-            deployment_model: "kubernetes",
+            // Derived from Compute Type: a single VM is never a k8s cluster.
+            // Bare-metal (Phase 3, per the workflow doc) still isn't modeled.
+            deployment_model: form.computeType === "vm" ? "vm" : "kubernetes",
             execution_environment: form.executionEnvironment,
           },
           capacity: {
@@ -175,108 +180,139 @@ export default function InfraPolicyForm() {
 
       <div className="card">
         <form onSubmit={onSubmit}>
-          <div style={{ fontWeight: 600, marginBottom: "8px" }}>Infrastructure</div>
+          <div style={{ fontWeight: 600, marginBottom: "8px" }}>Platform</div>
           <div className="grid">
             <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Infrastructure ID</label>
-              <input
-                className="input"
-                placeholder="e.g. infra-001"
-                value={form.infraId}
-                onChange={e => setForm(f => ({ ...f, infraId: e.target.value }))}
+              <label>Cloud Provider</label>
+              <select
+                className="select"
+                value={form.platformProvider}
+                onChange={e => setForm(f => ({ ...f, platformProvider: e.target.value }))}
                 disabled={submitted}
-                required
-              />
+              >
+                {PLATFORM_PROVIDERS.map(p => (
+                  <option key={p.id} value={p.id}>{p.label}</option>
+                ))}
+              </select>
             </div>
 
             <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Name</label>
-              <input
-                className="input"
-                placeholder="e.g. Azure SGX Cluster"
-                value={form.name}
-                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              <label>Execution Environment</label>
+              <select
+                className="select"
+                value={form.executionEnvironment}
+                onChange={e => setForm(f => ({ ...f, executionEnvironment: e.target.value }))}
                 disabled={submitted}
-                required
-              />
-            </div>
-
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Region</label>
-              <input
-                className="input"
-                placeholder="e.g. centralindia"
-                value={form.region}
-                onChange={e => setForm(f => ({ ...f, region: e.target.value }))}
-                disabled={submitted}
-                required
-              />
+              >
+                <option value="sgx">SGX (all nodes)</option>
+                <option value="mixed">Mixed (some SGX, affinity/tolerations)</option>
+              </select>
             </div>
           </div>
+          <div style={{ fontSize: "12px", color: "var(--text-light)", marginTop: "8px" }}>
+            Deployment model is derived from Compute Type below (Cluster → Kubernetes, VM → single-node).
+          </div>
 
-          <div className="grid" style={{ marginTop: "12px" }}>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Provider ID</label>
-              <input
-                className="input"
-                placeholder="e.g. infra-provider-001"
-                value={form.providerId}
-                onChange={e => setForm(f => ({ ...f, providerId: e.target.value }))}
-                disabled={submitted}
-              />
-            </div>
+          <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid var(--border-color)" }}>
+            <div style={{ fontWeight: 600, marginBottom: "8px" }}>Infrastructure</div>
+            <div className="grid">
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label>Infrastructure ID</label>
+                <input
+                  className="input"
+                  placeholder="e.g. infra-001"
+                  value={form.infraId}
+                  onChange={e => setForm(f => ({ ...f, infraId: e.target.value }))}
+                  disabled={submitted}
+                  required
+                />
+              </div>
 
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Provider Email</label>
-              <input
-                className="input"
-                type="email"
-                placeholder="provider@example.com"
-                value={form.providerEmail}
-                onChange={e => setForm(f => ({ ...f, providerEmail: e.target.value }))}
-                disabled={submitted}
-              />
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label>Name</label>
+                <input
+                  className="input"
+                  placeholder="e.g. Azure SGX Cluster"
+                  value={form.name}
+                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                  disabled={submitted}
+                  required
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label>Region</label>
+                <input
+                  className="input"
+                  placeholder="e.g. centralindia"
+                  value={form.region}
+                  onChange={e => setForm(f => ({ ...f, region: e.target.value }))}
+                  disabled={submitted}
+                  required
+                />
+              </div>
             </div>
           </div>
 
           <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid var(--border-color)" }}>
-            <div style={{ fontWeight: 600, marginBottom: "8px" }}>Platform</div>
+            <div style={{ fontWeight: 600, marginBottom: "8px" }}>Provider</div>
             <div className="grid">
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>Cloud Provider</label>
-                <select
-                  className="select"
-                  value={form.platformProvider}
-                  onChange={e => setForm(f => ({ ...f, platformProvider: e.target.value }))}
+                <label>Provider ID</label>
+                <input
+                  className="input"
+                  placeholder="e.g. infra-provider-001"
+                  value={form.providerId}
+                  onChange={e => setForm(f => ({ ...f, providerId: e.target.value }))}
                   disabled={submitted}
-                >
-                  {PLATFORM_PROVIDERS.map(p => (
-                    <option key={p.id} value={p.id}>{p.label}</option>
-                  ))}
-                </select>
+                />
               </div>
 
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>Execution Environment</label>
-                <select
-                  className="select"
-                  value={form.executionEnvironment}
-                  onChange={e => setForm(f => ({ ...f, executionEnvironment: e.target.value }))}
+                <label>Provider Email</label>
+                <input
+                  className="input"
+                  type="email"
+                  placeholder="provider@example.com"
+                  value={form.providerEmail}
+                  onChange={e => setForm(f => ({ ...f, providerEmail: e.target.value }))}
                   disabled={submitted}
-                >
-                  <option value="sgx">SGX (all nodes)</option>
-                  <option value="mixed">Mixed (some SGX, affinity/tolerations)</option>
-                </select>
+                />
               </div>
-            </div>
-            <div style={{ fontSize: "12px", color: "var(--text-light)", marginTop: "8px" }}>
-              Deployment model is fixed to Kubernetes for now (cloud-native Phase 1).
             </div>
           </div>
 
           <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid var(--border-color)" }}>
             <div style={{ fontWeight: 600, marginBottom: "8px" }}>Capacity</div>
-            <div className="grid">
+            <div className="form-group">
+              <label>Compute Type</label>
+              <select
+                className="select"
+                value={form.computeType}
+                onChange={e => {
+                  const computeType = e.target.value;
+                  setForm(f => ({
+                    ...f,
+                    computeType,
+                    // A VM is inherently a single node — keep the numbers
+                    // honest instead of leaving stale cluster defaults behind.
+                    ...(computeType === "vm"
+                      ? {
+                          nodeCount: 1,
+                          sgxNodeCount: f.executionEnvironment === "sgx" ? 1 : 0,
+                          maxConcurrentJobs: 1,
+                        }
+                      : {}),
+                  }));
+                }}
+                disabled={submitted}
+              >
+                <option value="vm">Virtual Machine (VM)</option>
+                <option value="cluster">Cluster</option>
+              </select>
+            </div>
+
+            <div className="grid" style={{ marginTop: "12px" }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label>CPU Cores</label>
                 <input
@@ -314,43 +350,45 @@ export default function InfraPolicyForm() {
               </div>
             </div>
 
-            <div className="grid" style={{ marginTop: "12px" }}>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>Node Count</label>
-                <input
-                  className="input"
-                  type="number"
-                  min="0"
-                  value={form.nodeCount}
-                  onChange={e => setForm(f => ({ ...f, nodeCount: e.target.value }))}
-                  disabled={submitted}
-                />
-              </div>
+            {form.computeType === "cluster" ? (
+              <div className="grid" style={{ marginTop: "12px" }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Node Count</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    value={form.nodeCount}
+                    onChange={e => setForm(f => ({ ...f, nodeCount: e.target.value }))}
+                    disabled={submitted}
+                  />
+                </div>
 
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>SGX Node Count</label>
-                <input
-                  className="input"
-                  type="number"
-                  min="0"
-                  value={form.sgxNodeCount}
-                  onChange={e => setForm(f => ({ ...f, sgxNodeCount: e.target.value }))}
-                  disabled={submitted}
-                />
-              </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>SGX Node Count</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    value={form.sgxNodeCount}
+                    onChange={e => setForm(f => ({ ...f, sgxNodeCount: e.target.value }))}
+                    disabled={submitted}
+                  />
+                </div>
 
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>Max Concurrent Jobs</label>
-                <input
-                  className="input"
-                  type="number"
-                  min="0"
-                  value={form.maxConcurrentJobs}
-                  onChange={e => setForm(f => ({ ...f, maxConcurrentJobs: e.target.value }))}
-                  disabled={submitted}
-                />
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Max Concurrent Jobs</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    value={form.maxConcurrentJobs}
+                    onChange={e => setForm(f => ({ ...f, maxConcurrentJobs: e.target.value }))}
+                    disabled={submitted}
+                  />
+                </div>
               </div>
-            </div>
+            ) : null}
           </div>
 
           <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid var(--border-color)" }}>

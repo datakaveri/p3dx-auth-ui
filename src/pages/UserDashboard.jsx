@@ -181,7 +181,7 @@ export default function UserDashboard() {
         {keyError ? <div className="error-message">{keyError}</div> : null}
       </div>
 
-      {(isSMPC || isTEE) && !hasApplicationProvider && !hasDataProvider ? (
+      {(isSMPC || isTEE) && !hasApplicationProvider && !hasDataProvider && !(isSMPC && hasInfraProvider) ? (
         <div style={{ marginBottom: "18px" }}>
           <button
             className="btn btn-primary"
