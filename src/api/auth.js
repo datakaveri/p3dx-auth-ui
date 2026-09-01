@@ -68,7 +68,7 @@ export async function getMe(token) {
   return data;
 }
 
-export async function notifyProviders(selectedProviders, requestedProviders, outputOwnerId, submissionId, token) {
+export async function notifyProviders(selectedProviders, requestedProviders, outputOwnerId, submissionId, token, willingProviders = []) {
   const res = await fetch(`${BACKEND_URL}/p3dx/notify-providers`, {
     method: "POST",
     headers: {
@@ -78,6 +78,7 @@ export async function notifyProviders(selectedProviders, requestedProviders, out
     body: JSON.stringify({
       selected_providers: selectedProviders,
       requested_providers: requestedProviders,
+      willing_providers: willingProviders,
       output_owner_id: outputOwnerId,
       submission_id: submissionId,
       notified_at: new Date().toISOString(),
@@ -154,6 +155,21 @@ export async function notifyRoster(selectedProviders, willingProviders, outputOw
   const data = await parseJsonSafe(res);
   if (!res.ok || data?.status === "FAILED") {
     throw buildHttpError(res, data, "Failed to send roster");
+  }
+  return data;
+}
+
+// Output owner: read back the stored FL session contract (draft before Final
+// Roster, finalized after) for a submission id, so it can be viewed in the UI.
+export async function getSessionContract(sessionId, token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/contract/${encodeURIComponent(sessionId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (res.status === 404) return null;
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to fetch session contract");
   }
   return data;
 }

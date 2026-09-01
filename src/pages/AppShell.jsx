@@ -8,7 +8,7 @@ export default function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const token = localStorage.getItem("access_token");
+  const token = sessionStorage.getItem("access_token");
 
   const roles = useMemo(() => user?.roles || [], [user]);
   const isAdmin = roles.includes("admin");
@@ -29,7 +29,8 @@ export default function AppShell() {
         setUser(res.user);
       })
       .catch(() => {
-        localStorage.removeItem("access_token");
+        sessionStorage.removeItem("access_token");
+        sessionStorage.removeItem("last_report_submission_id");
         navigate("/login", { replace: true });
       })
       .finally(() => {
@@ -42,16 +43,16 @@ export default function AppShell() {
   // reissued. Exchange the refresh token for a fresh one, then re-fetch the
   // profile, so newly-granted roles appear without a full re-login.
   const refreshUser = useCallback(async () => {
-    const refreshToken = localStorage.getItem("refresh_token");
-    let freshToken = localStorage.getItem("access_token");
+    const refreshToken = sessionStorage.getItem("refresh_token");
+    let freshToken = sessionStorage.getItem("access_token");
 
     if (refreshToken) {
       try {
         const tokenRes = await refreshAccessToken(refreshToken);
         if (tokenRes?.access_token) {
           freshToken = tokenRes.access_token;
-          localStorage.setItem("access_token", tokenRes.access_token);
-          if (tokenRes.refresh_token) localStorage.setItem("refresh_token", tokenRes.refresh_token);
+          sessionStorage.setItem("access_token", tokenRes.access_token);
+          if (tokenRes.refresh_token) sessionStorage.setItem("refresh_token", tokenRes.refresh_token);
         }
       } catch (err) {
         console.warn("Failed to refresh access token:", err);
@@ -118,14 +119,20 @@ export default function AppShell() {
               Admin
             </a>
           ) : (
-            <a className={location.pathname.startsWith("/app/services") ? "tab tab-active" : "tab"} href="/app/services">
-              Services
-            </a>
+            <>
+              <a className={location.pathname.startsWith("/app/role-request") ? "tab tab-active" : "tab"} href="/app/role-request">
+                Role Access
+              </a>
+              <a className={location.pathname.startsWith("/app/services") ? "tab tab-active" : "tab"} href="/app/services">
+                Services
+              </a>
+            </>
           )}
           <button
             className="btn btn-logout"
             onClick={() => {
-              localStorage.removeItem("access_token");
+              sessionStorage.removeItem("access_token");
+              sessionStorage.removeItem("last_report_submission_id");
               navigate("/login");
             }}
             style={{ marginTop: 0 }}

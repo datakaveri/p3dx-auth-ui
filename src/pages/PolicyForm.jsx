@@ -26,6 +26,7 @@ export default function PolicyForm() {
   const [form, setForm] = useState({
     datasetId: "",
     datasetName: "",
+    dataUrl: "",
     application: APPLICATIONS[0].id,
     allowedOrg: ORGS[0].id,
     accessLevel: "read",
@@ -74,6 +75,7 @@ export default function PolicyForm() {
       provider_id: form.providerId,
       provider_email: form.providerEmail,
       is_private: form.isPrivate,
+      data_url: form.dataUrl,
       rules: {
         dataset: {
           id: form.datasetId,
@@ -162,6 +164,18 @@ export default function PolicyForm() {
                 onChange={e => setForm(f => ({ ...f, datasetName: e.target.value }))}
                 disabled={submitted}
                 required
+              />
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Data URL</label>
+              <input
+                className="input"
+                type="text"
+                placeholder="e.g. https://storage.example.com/dataset.csv"
+                value={form.dataUrl}
+                onChange={e => setForm(f => ({ ...f, dataUrl: e.target.value }))}
+                disabled={submitted}
               />
             </div>
           </div>

@@ -44,7 +44,7 @@ export function DataOwnerForm({ user, token }) {
       requested_at: new Date().toISOString(),
       filled_at: new Date().toISOString()
     };
-    const freshToken = localStorage.getItem("access_token") || token;
+    const freshToken = sessionStorage.getItem("access_token") || token;
     try {
       const data = await submitDataOwnerFormToBackend(obj, freshToken);
       setMsg({ type: data.status === 'SUCCESS' ? 'success' : 'error', text: data.status === 'SUCCESS' ? 'Form submitted successfully' : (data.error || 'Error saving form') });

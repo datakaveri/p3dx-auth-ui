@@ -104,7 +104,12 @@ export default function WorkloadForm() {
         datasetId: selectedDatasetName,
         technique,
       });
-      setGeneratedContract(res?.contract || null);
+      const contract = res?.contract || null;
+      setGeneratedContract(contract);
+      // Policies set on the "Set Policy" page can carry a data URL for the
+      // dataset — prefill the run form with it so the consumer doesn't have
+      // to re-type a URL the provider already declared.
+      setDatasetUrl(contract?.parties?.data_providers?.[0]?.data_url || "");
     } catch (err) {
       setError(err.message || "Contract generation failed");
     } finally {
@@ -308,7 +313,7 @@ export default function WorkloadForm() {
         </div>
 
         {/* Generate button — this only builds and displays a contract. For
-            TEE it can then be submitted for a run via the button below. */}
+            TEE/SMPC it can then be submitted for a run via the button below. */}
         <button
           className="btn btn-primary"
           style={{ width: "100%", marginTop: 0 }}
@@ -340,14 +345,14 @@ export default function WorkloadForm() {
             </div>
             <div style={{ marginTop: 10 }}>
               <div className="label">Dataset</div>
-              <div className="value">{generatedContract.data_provider_terms?.dataset_name}</div>
+              <div className="value">{generatedContract.parties?.data_providers?.[0]?.dataset_name}</div>
             </div>
             <div style={{ marginTop: 10 }}>
               <div className="label">Parties</div>
               <div className="value" style={{ fontSize: 13 }}>
-                Consumer: {generatedContract.parties?.consumer?.id}<br />
-                Data Provider: {generatedContract.parties?.data_provider?.name}<br />
-                Application Provider: {generatedContract.parties?.application_provider?.name}
+                Consumer: {generatedContract.parties?.user?.id}<br />
+                Data Provider: {generatedContract.parties?.data_providers?.[0]?.name}<br />
+                Application Provider: {generatedContract.parties?.application_providers?.[0]?.name}
               </div>
             </div>
             <button
@@ -364,21 +369,15 @@ export default function WorkloadForm() {
               </pre>
             )}
 
-            {technique === "TEE" && (
+            {(technique === "TEE" || technique === "SMPC") && (
               <div style={{ marginTop: 14, borderTop: "1px solid var(--border-color)", paddingTop: 14 }}>
                 {(!teeSession || teeSession.status === "failed") && (
                   <>
-                    <label className="label" style={{ display: "block", marginBottom: 6 }}>
-                      Dataset blob URL (https)
-                    </label>
-                    <input
-                      type="url"
-                      placeholder="https://anondata2.blob.core.windows.net/encrypted-data/..."
-                      value={datasetUrl}
-                      onChange={e => setDatasetUrl(e.target.value)}
-                      className="cat-search__input"
-                      style={{ width: "100%", marginBottom: 10, boxSizing: "border-box" }}
-                    />
+                    {!datasetUrl && (
+                      <div className="error-message" style={{ marginBottom: 10, fontSize: 13 }}>
+                        This dataset's policy has no data URL set — go to Set Policy and add one before running.
+                      </div>
+                    )}
                     <button
                       type="button"
                       className="btn btn-primary"
