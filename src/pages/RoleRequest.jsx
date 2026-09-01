@@ -11,6 +11,7 @@ import { createRoleRequest, listMyRoleRequests, listAvailableDatasets } from "..
 const ROLE_OPTIONS = [
   { value: "application-provider", label: "Application Provider — SMPC / TEE / Differential Privacy" },
   { value: "data-provider", label: "Data Provider — Federated Learning / SMPC / TEE / Differential Privacy" },
+  { value: "infra-provider", label: "Infrastructure Provider — SMPC" },
 ];
 
 export default function RoleRequest() {

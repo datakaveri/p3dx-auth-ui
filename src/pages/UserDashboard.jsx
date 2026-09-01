@@ -10,15 +10,22 @@ export default function UserDashboard() {
   const roles = useMemo(() => user?.roles || [], [user]);
   const hasApplicationProvider = roles.includes("application-provider");
   const hasDataProvider = roles.includes("data-provider");
+  const hasInfraProvider = roles.includes("infra-provider");
+
+  // data-provider and infra-provider each get their own key pair provisioned
+  // on approval (see keyPair.service.js KEY_PAIR_ROLES) but a user only ever
+  // holds one of the two in practice — pick whichever applies for the
+  // status/download calls below.
+  const keyRoleName = hasDataProvider ? "data-provider" : hasInfraProvider ? "infra-provider" : null;
 
   const [keyStatus, setKeyStatus] = useState(null);
   const [keyDownloading, setKeyDownloading] = useState(false);
   const [keyError, setKeyError] = useState(null);
 
   useEffect(() => {
-    if (!hasDataProvider || !token) return;
+    if (!keyRoleName || !token) return;
     let cancelled = false;
-    getKeyPairStatus(token, "data-provider").then(res => {
+    getKeyPairStatus(token, keyRoleName).then(res => {
       if (!cancelled && res?.status === "SUCCESS") {
         setKeyStatus(res);
       }
@@ -26,13 +33,14 @@ export default function UserDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [hasDataProvider, token]);
+  }, [keyRoleName, token]);
 
   const handleDownloadKey = async () => {
+    if (!keyRoleName) return;
     setKeyError(null);
     setKeyDownloading(true);
     try {
-      await downloadPrivateKey(token, "data-provider");
+      await downloadPrivateKey(token, keyRoleName);
     } catch (err) {
       setKeyError(err?.message || "Download failed");
     } finally {
@@ -45,7 +53,7 @@ export default function UserDashboard() {
   // to contract generation today; /dp has no technique value to pass yet.
   const technique = isSMPC ? "SMPC" : isTEE ? "TEE" : undefined;
 
-  const DISPLAY_ROLES = ["user", "application-provider", "data-provider"];
+  const DISPLAY_ROLES = ["user", "application-provider", "data-provider", "infra-provider"];
   const displayRoles = roles.filter(r => DISPLAY_ROLES.includes(r));
 
   const serviceLabel = useMemo(() => {
@@ -136,7 +144,24 @@ export default function UserDashboard() {
             </button>
           ) : null}
 
-          {hasDataProvider && keyStatus?.exists ? (
+          {isSMPC && hasInfraProvider ? (
+            <button
+              className="action-card"
+              type="button"
+              onClick={() =>
+                navigate("/app/services/infra-policy", {
+                  state: { returnTo: location.pathname },
+                })
+              }
+            >
+              <div className="action-title">Set Infrastructure Policy</div>
+              <div className="action-description">
+                Register your infrastructure's capacity, attestation, and access rules for SMPC.
+              </div>
+            </button>
+          ) : null}
+
+          {keyRoleName && keyStatus?.exists ? (
             <button
               className="action-card"
               type="button"
@@ -147,7 +172,7 @@ export default function UserDashboard() {
                 {keyDownloading ? "Downloading..." : "Download Private Key"}
               </div>
               <div className="action-description">
-                Download your data-provider private key
+                Download your {keyRoleName} private key
                 {keyStatus.download_count > 0 ? ` (downloaded ${keyStatus.download_count} time${keyStatus.download_count === 1 ? "" : "s"} so far)` : ""}.
               </div>
             </button>
@@ -173,7 +198,7 @@ export default function UserDashboard() {
         </div>
       ) : null}
 
-      {!hasApplicationProvider && !hasDataProvider && (
+      {!hasApplicationProvider && !hasDataProvider && !(isSMPC && hasInfraProvider) && (
         <div className="card" style={{ marginBottom: "18px" }}>
           <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
             You need the <strong>application-provider</strong> or <strong>data-provider</strong> role for full access to this service.

@@ -39,7 +39,7 @@ const SERVICE_DEFS = [
   {
     title: "SMPC",
     description:
-      "Execute joint computations across multiple parties while keeping each party's inputs cryptographically private.",
+      "Execute joint computations across multiple parties while keeping each party's inputs cryptographically private. Infrastructure providers can register infrastructure here too.",
     icon: <Lock size={22} />,
     iconClass: "service-icon--teal",
     cardClass: "service-card--teal",

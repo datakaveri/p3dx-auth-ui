@@ -33,11 +33,12 @@ export async function runWorkload(token, { datasetId, applicationId }) {
 }
 
 // Builds and returns a contract for display only — does not submit/deploy it.
-export async function previewContract(token, { datasetId, technique }) {
+// infraId is the InfraCat selection (SMPC only); omitted for TEE/FL.
+export async function previewContract(token, { datasetId, technique, infraId }) {
   const res = await fetch(`${BACKEND_URL}/p3dx/workloads/preview-contract`, {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify({ datasetId, technique }),
+    body: JSON.stringify({ datasetId, technique, ...(infraId ? { infraId } : {}) }),
   });
 
   const data = await parseJsonSafe(res);

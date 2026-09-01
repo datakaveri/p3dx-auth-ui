@@ -903,6 +903,128 @@ a:hover {
   gap: 10px;
 }
 
+/* Contract preview modal (ContractPreviewModal.jsx) */
+.modal--lg {
+  max-width: 720px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.cpm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.cpm-body {
+  overflow-y: auto;
+  padding: 20px 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.cpm-section__title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 12px;
+}
+
+.cpm-field {
+  margin-bottom: 10px;
+}
+
+.cpm-field__label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin-bottom: 3px;
+}
+
+.cpm-field__value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dark);
+  word-break: break-word;
+}
+
+.cpm-field__value--mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.cpm-party {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-light);
+  padding: 14px;
+  margin-bottom: 10px;
+}
+
+.cpm-party:last-child {
+  margin-bottom: 0;
+}
+
+.cpm-party__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-dark);
+  margin-bottom: 10px;
+}
+
+.cpm-party__body .cpm-field:last-child {
+  margin-bottom: 0;
+}
+
+.cpm-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.cpm-badge--signed {
+  background: rgba(16, 185, 129, 0.12);
+  color: #047857;
+}
+
+.cpm-badge--pending {
+  background: rgba(107, 114, 128, 0.12);
+  color: var(--text-light);
+}
+
+.cpm-raw {
+  margin-top: 12px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: var(--bg-light);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
 .btn-danger {
   background: linear-gradient(135deg, var(--error-color) 0%, #dc2626 100%);
   color: white;
@@ -1568,9 +1690,11 @@ textarea.input {
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
 }
 
-/* Simple dataset list — real, registered dataset names have no catalogue
-   metadata (category/description/size/etc.) yet, so these render as plain
-   selectable rows rather than the richer .cat-card used for applications. */
+/* Simple dataset/infra list — real, registered dataset names have no
+   catalogue metadata (category/description/size/etc.) yet, so dataset rows
+   render as plain selectable rows rather than the richer .cat-card used for
+   applications. Infra rows (.cat-infra-item below) do have registered detail
+   (capacity/attestation/platform) behind an expand-for-details toggle. */
 .cat-simple-list {
   display: flex;
   flex-direction: column;
@@ -1607,6 +1731,79 @@ textarea.input {
 .cat-simple-item__name {
   flex: 1;
   font-weight: 500;
+}
+
+/* Infra row — like .cat-simple-item, but with a separate expand toggle for
+   the registered capacity/attestation/platform detail, so the row can't end
+   up as a button nested inside a button. */
+.cat-infra-item {
+  background: white;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+  overflow: hidden;
+}
+
+.cat-infra-item:hover {
+  box-shadow: var(--shadow-md);
+  border-color: rgba(148, 163, 184, 0.5);
+}
+
+.cat-infra-item--selected {
+  border-color: rgba(59, 130, 246, 0.5);
+  background: rgba(59, 130, 246, 0.03);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.cat-infra-item__row {
+  display: flex;
+  align-items: center;
+}
+
+.cat-infra-item__select {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 12px 14px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.cat-infra-item__expand {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-right: 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-light);
+  border-radius: var(--radius-sm);
+  transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.cat-infra-item__expand:hover {
+  background: var(--bg-light);
+  color: var(--text-dark);
+}
+
+.cat-infra-item__expand--open {
+  transform: rotate(180deg);
+}
+
+.cat-infra-item__details {
+  border-top: 1px solid var(--border-color);
+  padding: 14px;
+  background: var(--bg-light);
 }
 
 .cat-card__body {
