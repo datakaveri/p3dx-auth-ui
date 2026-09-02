@@ -10,6 +10,7 @@ import AdminDashboard from "./pages/AdminDashboard";
 import ServicesLanding from "./pages/ServicesLanding";
 import PolicyForm from "./pages/PolicyForm";
 import InfraPolicyForm from "./pages/InfraPolicyForm";
+import MyInfraDashboard from "./pages/MyInfraDashboard";
 import WorkloadForm from "./pages/WorkloadForm";
 import WorkloadResult from "./pages/WorkloadResult";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -36,6 +37,8 @@ export const router = createBrowserRouter([
       { path: "services/dp", element: <UserDashboard /> },
       { path: "services/policies", element: <PolicyForm /> },
       { path: "services/infra-policy", element: <InfraPolicyForm /> },
+      { path: "services/infra-policy/my", element: <MyInfraDashboard /> },
+      { path: "services/infra-policy/edit/:itemId", element: <InfraPolicyForm /> },
       { path: "services/run", element: <WorkloadForm /> },
       { path: "services/run/:contractId", element: <WorkloadResult /> },
       { path: "admin", element: <AdminDashboard /> },
