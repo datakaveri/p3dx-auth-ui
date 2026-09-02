@@ -23,7 +23,7 @@ export async function downloadPrivateKey(token, roleName) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "data-provider-private-key.pem";
+  link.download = `${roleName}-private-key.pem`;
   document.body.appendChild(link);
   link.click();
   link.remove();
