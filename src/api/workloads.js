@@ -36,12 +36,13 @@ export async function runWorkload(token, { datasetId, applicationId }) {
 // datasetId is the dataset's real item_id (see WorkloadForm.jsx's dataset
 // picker); datasetName is its display name, sent separately so gov_layer can
 // look the policy up by the real id while still labeling the contract with
-// the name a human recognizes.
-export async function previewContract(token, { datasetId, datasetName, technique }) {
+// the name a human recognizes. infraId is the InfraCat selection (SMPC
+// only); omitted for TEE/FL.
+export async function previewContract(token, { datasetId, datasetName, technique, infraId }) {
   const res = await fetch(`${BACKEND_URL}/p3dx/workloads/preview-contract`, {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify({ datasetId, datasetName, technique }),
+    body: JSON.stringify({ datasetId, datasetName, technique, ...(infraId ? { infraId } : {}) }),
   });
 
   const data = await parseJsonSafe(res);
