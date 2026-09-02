@@ -13,6 +13,25 @@ const ORGS = [
 // Splits a comma-separated string into a trimmed, non-empty string array.
 const toList = value => value.split(",").map(s => s.trim()).filter(Boolean);
 
+// Auto-generated Dataset ID: ds-<YYYYMMDD>-<8-char base36>, via crypto.getRandomValues
+// with rejection sampling (avoids modulo bias mapping bytes onto the 36-char alphabet).
+// Mirrors generateInfraId() in InfraPolicyForm.jsx; duplicated locally since no shared
+// utils module exists in src.
+function generateDatasetId() {
+  const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz";
+  const limit = 256 - (256 % alphabet.length);
+  let suffix = "";
+  const buf = new Uint8Array(1);
+  while (suffix.length < 8) {
+    crypto.getRandomValues(buf);
+    if (buf[0] < limit) {
+      suffix += alphabet[buf[0] % alphabet.length];
+    }
+  }
+  return `ds-${datePart}-${suffix}`;
+}
+
 export default function PolicyForm() {
   const { user, isAdmin, token } = useOutletContext();
   const roles = useMemo(() => user?.roles || [], [user]);
@@ -23,8 +42,8 @@ export default function PolicyForm() {
 
   const returnTo = location.state?.returnTo || "/app/services/fl";
 
-  const [form, setForm] = useState({
-    datasetId: "",
+  const [form, setForm] = useState(() => ({
+    datasetId: generateDatasetId(),
     datasetName: "",
     dataUrl: "",
     application: APPLICATIONS[0].id,
@@ -42,7 +61,7 @@ export default function PolicyForm() {
     allowedScopes: "",
     requiredScopes: "",
     allowedActions: "",
-  });
+  }));
 
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState(null);
@@ -147,12 +166,13 @@ export default function PolicyForm() {
               <label>Dataset ID</label>
               <input
                 className="input"
-                placeholder="e.g. ds-my-dataset"
+                readOnly
+                disabled
                 value={form.datasetId}
-                onChange={e => setForm(f => ({ ...f, datasetId: e.target.value }))}
-                disabled={submitted}
-                required
               />
+              <div style={{ fontSize: "12px", color: "var(--text-light)", marginTop: "4px" }}>
+                Auto-generated
+              </div>
             </div>
 
             <div className="form-group" style={{ marginBottom: 0 }}>

@@ -8,6 +8,35 @@ const PLATFORM_PROVIDERS = [
   { id: "aws", label: "AWS" },
 ];
 
+// Small local helpers for the auto-generated Infrastructure ID / Provider ID
+// (see Infra_Form_Changes.md item #8). No shared package exists for these —
+// slugify() is intentionally duplicated in p3dx-aaa's server-side ownership
+// checks; keep the two in sync if this changes.
+function slugify(s) {
+  return String(s || "unknown").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+// infra-<YYYYMMDD>-<8-char base36>, e.g. infra-20260902-k3j9x2p7. Uses
+// crypto.getRandomValues (rejection-sampled into base36 digits) rather than
+// Math.random() for cryptographically strong, unbiased randomness — 36^8
+// combinations keeps collisions negligible even at POC-unrealistic volumes.
+function generateInfraId() {
+  const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz";
+  // Largest multiple of 36 that fits in a byte (252 = 7*36) — reject bytes
+  // at or above this so every base36 digit stays equally likely.
+  const limit = 256 - (256 % alphabet.length);
+  let suffix = "";
+  const buf = new Uint8Array(1);
+  while (suffix.length < 8) {
+    crypto.getRandomValues(buf);
+    if (buf[0] < limit) {
+      suffix += alphabet[buf[0] % alphabet.length];
+    }
+  }
+  return `infra-${datePart}-${suffix}`;
+}
+
 // Infrastructure Policy — the SMPC-only counterpart to the dataset access
 // policy in PolicyForm.jsx. It rides the exact same generic POST /p3dx/policy
 // -> APD /api/v1/policy pipeline (no backend schema change): everything
@@ -24,11 +53,17 @@ export default function InfraPolicyForm() {
 
   const returnTo = location.state?.returnTo || "/app/services/smpc";
 
-  const [form, setForm] = useState({
-    infraId: "",
+  const [form, setForm] = useState(() => ({
+    // System-generated, read-only (Infra_Form_Changes.md item #8). Evaluated
+    // once on mount via this lazy initializer — never regenerated on
+    // re-render or on other field changes.
+    infraId: generateInfraId(),
     name: "",
     region: "",
-    providerId: "",
+    // Stable across every registration the same provider ever submits —
+    // derived from the logged-in user's identity, not random per submission,
+    // so a provider's multiple infra entries stay linkable back to them.
+    providerId: `provider-${slugify(user?.username || user?.email)}`,
     // Prefilled from the logged-in user's own account — still editable, in
     // case the submitting person differs from the provider contact.
     providerEmail: user?.email || "",
@@ -59,7 +94,7 @@ export default function InfraPolicyForm() {
     allowEphemeralExecution: true,
 
     validUntil: "",
-  });
+  }));
 
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState(null);
@@ -220,12 +255,13 @@ export default function InfraPolicyForm() {
                 <label>Infrastructure ID</label>
                 <input
                   className="input"
-                  placeholder="e.g. infra-001"
+                  readOnly
+                  disabled
                   value={form.infraId}
-                  onChange={e => setForm(f => ({ ...f, infraId: e.target.value }))}
-                  disabled={submitted}
-                  required
                 />
+                <div style={{ fontSize: "12px", color: "var(--text-light)", marginTop: "4px" }}>
+                  Auto-generated
+                </div>
               </div>
 
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -261,11 +297,13 @@ export default function InfraPolicyForm() {
                 <label>Provider ID</label>
                 <input
                   className="input"
-                  placeholder="e.g. infra-provider-001"
+                  readOnly
+                  disabled
                   value={form.providerId}
-                  onChange={e => setForm(f => ({ ...f, providerId: e.target.value }))}
-                  disabled={submitted}
                 />
+                <div style={{ fontSize: "12px", color: "var(--text-light)", marginTop: "4px" }}>
+                  Auto-generated
+                </div>
               </div>
 
               <div className="form-group" style={{ marginBottom: 0 }}>
