@@ -106,11 +106,13 @@ export default function WorkloadForm() {
   // Each tab keeps its own independent search term.
   const [datasetSearchQuery, setDatasetSearchQuery] = useState("");
   const [infraSearchQuery, setInfraSearchQuery] = useState("");
-  const [selectedDatasetName, setSelectedDatasetName] = useState(null);
+  const [selectedDatasetId, setSelectedDatasetId] = useState(null);
 
-  // Real, registered dataset names (from APD via aaa's /available-datasets) —
-  // no catalogue metadata (category/description/size/etc.) exists for these yet.
-  const [datasetNames, setDatasetNames] = useState([]);
+  // Real, registered datasets (from APD via aaa's /available-datasets) — each
+  // a {id, name} pair (id is the real item_id a by-item policy lookup needs;
+  // name is what's shown). No catalogue metadata (category/description/
+  // size/etc.) exists for these yet.
+  const [datasetList, setDatasetList] = useState([]);
   const [datasetsLoading, setDatasetsLoading] = useState(true);
   const [datasetsError, setDatasetsError] = useState(null);
 
@@ -122,7 +124,7 @@ export default function WorkloadForm() {
       try {
         const data = await listAvailableDatasets(token);
         if (!cancelled) {
-          setDatasetNames(Array.isArray(data?.datasets) ? data.datasets : []);
+          setDatasetList(Array.isArray(data?.datasets) ? data.datasets : []);
         }
       } catch (err) {
         if (!cancelled) setDatasetsError(err.message || "Failed to load datasets");
@@ -183,10 +185,10 @@ export default function WorkloadForm() {
   const [downloadError, setDownloadError] = useState(null);
 
   // Filtered lists
-  const filteredDatasetNames = useMemo(() => {
+  const filteredDatasetList = useMemo(() => {
     const q = datasetSearchQuery.toLowerCase();
-    return datasetNames.filter(name => !q || name.toLowerCase().includes(q));
-  }, [datasetNames, datasetSearchQuery]);
+    return datasetList.filter(d => !q || d.name.toLowerCase().includes(q));
+  }, [datasetList, datasetSearchQuery]);
 
   const filteredInfraList = useMemo(() => {
     const q = infraSearchQuery.toLowerCase();
@@ -197,9 +199,14 @@ export default function WorkloadForm() {
     });
   }, [infraList, infraSearchQuery]);
 
-  const handleDatasetSelect = (name) => {
-    setSelectedDatasetName(prev => prev === name ? null : name);
+  const handleDatasetSelect = (id) => {
+    setSelectedDatasetId(prev => prev === id ? null : id);
   };
+
+  const selectedDataset = useMemo(
+    () => datasetList.find(d => d.id === selectedDatasetId) || null,
+    [datasetList, selectedDatasetId]
+  );
 
   const handleInfraSelect = (itemId) => {
     setSelectedInfraId(prev => prev === itemId ? null : itemId);
@@ -229,7 +236,7 @@ export default function WorkloadForm() {
   );
 
   const handleGenerateContract = async () => {
-    if (!selectedDatasetName || !technique) return;
+    if (!selectedDatasetId || !technique) return;
     if (isSMPCTechnique && !selectedInfraId) return;
     setError(null);
     setGeneratedContract(null);
@@ -239,7 +246,8 @@ export default function WorkloadForm() {
     try {
       if (!token) throw new Error("MISSING_AUTH_TOKEN");
       const res = await previewContract(token, {
-        datasetId: selectedDatasetName,
+        datasetId: selectedDatasetId,
+        datasetName: selectedDataset?.name,
         technique,
         infraId: selectedInfraId,
       });
@@ -263,8 +271,8 @@ export default function WorkloadForm() {
     try {
       const res = await startTeeSession(token, {
         datasetUrl,
-        datasetId: selectedDatasetName,
-        datasetName: selectedDatasetName,
+        datasetId: selectedDatasetId,
+        datasetName: selectedDataset?.name,
       });
       setTeeSession({ sessionId: res.sessionId, status: res.status || "provisioning", error: null });
     } catch (err) {
@@ -318,9 +326,9 @@ export default function WorkloadForm() {
     return () => clearInterval(interval);
   }, [teeSession?.sessionId, teeSession?.status, token]);
 
-  const canRun = selectedDatasetName && technique && (!isSMPCTechnique || selectedInfraId);
+  const canRun = selectedDatasetId && technique && (!isSMPCTechnique || selectedInfraId);
   const missingItems = [];
-  if (!selectedDatasetName) missingItems.push("dataset");
+  if (!selectedDatasetId) missingItems.push("dataset");
   if (isSMPCTechnique && !selectedInfraId) missingItems.push("infrastructure");
   if (!technique) missingItems.push("service (go back to Services and start from SMPC or Anonymization)");
 
@@ -475,18 +483,18 @@ export default function WorkloadForm() {
                   <p>Could not load datasets</p>
                   <span>{datasetsError}</span>
                 </div>
-              ) : filteredDatasetNames.length > 0 ? (
+              ) : filteredDatasetList.length > 0 ? (
                 <div className="cat-simple-list">
-                  {filteredDatasetNames.map(name => (
+                  {filteredDatasetList.map(d => (
                     <button
-                      key={name}
+                      key={d.id}
                       type="button"
-                      className={`cat-simple-item${selectedDatasetName === name ? " cat-simple-item--selected" : ""}`}
-                      onClick={() => handleDatasetSelect(name)}
+                      className={`cat-simple-item${selectedDatasetId === d.id ? " cat-simple-item--selected" : ""}`}
+                      onClick={() => handleDatasetSelect(d.id)}
                     >
                       <Database size={16} />
-                      <span className="cat-simple-item__name">{name}</span>
-                      {selectedDatasetName === name && <CheckCircle2 size={15} />}
+                      <span className="cat-simple-item__name">{d.name}</span>
+                      {selectedDatasetId === d.id && <CheckCircle2 size={15} />}
                     </button>
                   ))}
                 </div>
@@ -530,19 +538,19 @@ export default function WorkloadForm() {
         </div>
 
         {/* Dataset slot */}
-        <div className={`cat-slot${selectedDatasetName ? " cat-slot--filled" : ""}`}>
+        <div className={`cat-slot${selectedDatasetId ? " cat-slot--filled" : ""}`}>
           <div className="cat-slot__icon">
             <Database size={16} />
           </div>
           <div className="cat-slot__info">
             <div className="cat-slot__label">Dataset</div>
-            {selectedDatasetName
-              ? <div className="cat-slot__value">{selectedDatasetName}</div>
+            {selectedDatasetId
+              ? <div className="cat-slot__value">{selectedDataset?.name || selectedDatasetId}</div>
               : <div className="cat-slot__placeholder">No dataset selected</div>
             }
           </div>
-          {selectedDatasetName && (
-            <button className="cat-icon-btn cat-slot__clear" onClick={() => setSelectedDatasetName(null)} title="Clear">
+          {selectedDatasetId && (
+            <button className="cat-icon-btn cat-slot__clear" onClick={() => setSelectedDatasetId(null)} title="Clear">
               <X size={13} />
             </button>
           )}
