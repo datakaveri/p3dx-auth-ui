@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
+import { useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { submitPolicy } from "../api/policies";
+import { getInfrastructureDetails } from "../api/roleRequests";
 
 const PLATFORM_PROVIDERS = [
   { id: "azure", label: "Azure" },
@@ -50,14 +51,21 @@ export default function InfraPolicyForm() {
 
   const navigate = useNavigate();
   const location = useLocation();
+  // Edit mode: present when reached via the "My Infrastructure" dashboard's
+  // Edit button (route services/infra-policy/edit/:itemId). Absent, this is
+  // the plain "register new infrastructure" flow, unchanged.
+  const { itemId } = useParams();
+  const isEditMode = Boolean(itemId);
 
   const returnTo = location.state?.returnTo || "/app/services/smpc";
 
   const [form, setForm] = useState(() => ({
     // System-generated, read-only (Infra_Form_Changes.md item #8). Evaluated
     // once on mount via this lazy initializer — never regenerated on
-    // re-render or on other field changes.
-    infraId: generateInfraId(),
+    // re-render or on other field changes. In edit mode, preserve the
+    // existing id (from the route) instead of minting a new one — reusing
+    // it is what makes resubmission supersede the old entry.
+    infraId: itemId || generateInfraId(),
     name: "",
     region: "",
     // Stable across every registration the same provider ever submits —
@@ -99,6 +107,18 @@ export default function InfraPolicyForm() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState(null);
 
+  // Edit mode: fetch the existing entry and seed the form from it. Uses the
+  // same consumer-facing detail endpoint InfraCat's "expand for details" row
+  // uses (getInfrastructureDetails) — it only ever returns the
+  // rules.infrastructure block (deliberately stripped of provider_id/email
+  // server-side), so providerId/providerEmail below stay derived from the
+  // logged-in user, never from fetched data. It also doesn't carry
+  // allow_remote_provisioning/allow_ephemeral_execution/expiresAt (those live
+  // outside rules.infrastructure) — those Access Rules fields keep this
+  // form's normal defaults on edit rather than the previously-saved values.
+  const [loadingRecord, setLoadingRecord] = useState(isEditMode);
+  const [loadError, setLoadError] = useState(null);
+
   useEffect(() => {
     if (isAdmin) {
       navigate("/app/admin", { replace: true });
@@ -110,6 +130,55 @@ export default function InfraPolicyForm() {
       navigate(returnTo, { replace: true });
     }
   }, [hasInfraProvider, returnTo]);
+
+  useEffect(() => {
+    if (!isEditMode || !token) return;
+    let cancelled = false;
+
+    // loadingRecord/loadError already start correct for the normal case
+    // (isEditMode/null via useState above) — itemId/token don't change
+    // without remounting this page, so there's no re-run to reset for.
+
+    getInfrastructureDetails(token, itemId)
+      .then(res => {
+        if (cancelled) return;
+        const infra = res?.infrastructure;
+        if (res?.status !== "SUCCESS" || !infra) {
+          throw new Error(res?.error || "Infrastructure entry not found");
+        }
+        setForm(f => ({
+          ...f,
+          name: infra.name || "",
+          region: infra.region || "",
+          platformProvider: infra.platform?.provider || f.platformProvider,
+          executionEnvironment: infra.platform?.execution_environment || f.executionEnvironment,
+          computeType: infra.platform?.deployment_model === "vm" ? "vm" : "cluster",
+          cpuCores: infra.capacity?.cpu_cores ?? f.cpuCores,
+          ramMb: infra.capacity?.ram_mb ?? f.ramMb,
+          storageGb: infra.capacity?.storage_gb ?? f.storageGb,
+          nodeCount: infra.capacity?.node_count ?? f.nodeCount,
+          sgxNodeCount: infra.capacity?.sgx_node_count ?? f.sgxNodeCount,
+          maxConcurrentJobs: infra.capacity?.max_concurrent_jobs ?? f.maxConcurrentJobs,
+          attestationRequired: infra.attestation?.required ?? f.attestationRequired,
+          attestationService: infra.attestation?.service || "",
+          attestationPolicyId: infra.attestation?.policy_id || "",
+          loadBalancerEndpoint: infra.connectivity?.load_balancer_endpoint || "",
+          clusterEndpoint: infra.connectivity?.cluster_endpoint || "",
+          sshHost: infra.connectivity?.ssh_host || "",
+          sshPort: infra.connectivity?.ssh_port ?? f.sshPort,
+        }));
+      })
+      .catch(err => {
+        if (!cancelled) setLoadError(err?.message || String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingRecord(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditMode, itemId, token]);
 
   const onSubmit = async e => {
     e.preventDefault();
@@ -192,9 +261,13 @@ export default function InfraPolicyForm() {
     <div>
       <div className="page-header">
         <div className="page-header-title">
-          <h3 className="section-title" style={{ marginBottom: 0 }}>Set Infrastructure Policy</h3>
+          <h3 className="section-title" style={{ marginBottom: 0 }}>
+            {isEditMode ? "Edit Infrastructure Policy" : "Set Infrastructure Policy"}
+          </h3>
           <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
-            Register your infrastructure's capacity, attestation, and access rules for SMPC workloads.
+            {isEditMode
+              ? "Update your infrastructure's capacity, attestation, and access rules for SMPC workloads."
+              : "Register your infrastructure's capacity, attestation, and access rules for SMPC workloads."}
           </div>
         </div>
         <div className="page-header-actions">
@@ -211,8 +284,18 @@ export default function InfraPolicyForm() {
       </div>
 
       {error ? <div className="error-message">{error}</div> : null}
-      {submitted ? <div className="info-banner">Infrastructure policy stored in APD successfully. Redirecting...</div> : null}
+      {loadError ? <div className="error-message">{loadError}</div> : null}
+      {submitted ? (
+        <div className="info-banner">
+          {isEditMode
+            ? "Infrastructure policy updated successfully. Redirecting..."
+            : "Infrastructure policy stored in APD successfully. Redirecting..."}
+        </div>
+      ) : null}
 
+      {loadingRecord ? (
+        <div className="card">Loading infrastructure details...</div>
+      ) : loadError ? null : (
       <div className="card">
         <form onSubmit={onSubmit}>
           <div style={{ fontWeight: 600, marginBottom: "8px" }}>Platform</div>
@@ -572,11 +655,14 @@ export default function InfraPolicyForm() {
               Cancel
             </button>
             <button className="btn btn-primary" style={{ width: "auto" }} type="submit" disabled={submitted}>
-              {submitted ? "Setting..." : "Set Infrastructure Policy"}
+              {submitted
+                ? (isEditMode ? "Updating..." : "Setting...")
+                : (isEditMode ? "Update Infrastructure Policy" : "Set Infrastructure Policy")}
             </button>
           </div>
         </form>
       </div>
+      )}
     </div>
   );
 }

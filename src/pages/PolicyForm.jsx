@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
-import { submitPolicy } from "../api/policies";
+import { useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { submitPolicy, getMyDatasetDetails } from "../api/policies";
 import { applications as APPLICATIONS } from "../data/catalogueData";
 
 const ORGS = [
@@ -12,6 +12,15 @@ const ORGS = [
 
 // Splits a comma-separated string into a trimmed, non-empty string array.
 const toList = value => value.split(",").map(s => s.trim()).filter(Boolean);
+
+// Mirrors InfraPolicyForm.jsx's slugify() exactly — used to derive the
+// data-provider's Provider ID from their own identity, the same way infra
+// does. No shared utils module exists in src, so this is intentionally
+// duplicated across InfraPolicyForm.jsx and p3dx-aaa's server-side ownership
+// checks; keep all copies in sync if this changes.
+function slugify(s) {
+  return String(s || "unknown").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
 
 // Auto-generated Dataset ID: ds-<YYYYMMDD>-<8-char base36>, via crypto.getRandomValues
 // with rejection sampling (avoids modulo bias mapping bytes onto the 36-char alphabet).
@@ -39,11 +48,20 @@ export default function PolicyForm() {
 
   const navigate = useNavigate();
   const location = useLocation();
+  // Edit mode: present when reached via the "My Datasets" dashboard's Edit
+  // button (route services/policies/edit/:itemId). Absent, this is the
+  // plain "register new dataset policy" flow, unchanged.
+  const { itemId } = useParams();
+  const isEditMode = Boolean(itemId);
 
   const returnTo = location.state?.returnTo || "/app/services/fl";
 
   const [form, setForm] = useState(() => ({
-    datasetId: generateDatasetId(),
+    // System-generated, read-only. Evaluated once on mount via this lazy
+    // initializer. In edit mode, preserve the existing id (from the route)
+    // instead of minting a new one — reusing it is what makes resubmission
+    // supersede the old entry.
+    datasetId: itemId || generateDatasetId(),
     datasetName: "",
     dataUrl: "",
     application: APPLICATIONS[0].id,
@@ -52,8 +70,14 @@ export default function PolicyForm() {
     expiresAt: "",
     purpose: "research",
     notes: "",
-    providerId: "",
-    providerEmail: "",
+    // Stable across every registration the same provider ever submits —
+    // derived from the logged-in user's identity, not free text, so a
+    // provider's multiple dataset entries stay linkable back to them and
+    // "My Datasets" can be scoped by ownership (mirrors InfraPolicyForm.jsx).
+    providerId: `provider-${slugify(user?.username || user?.email)}`,
+    // Prefilled from the logged-in user's own account — still editable, in
+    // case the submitting person differs from the provider contact.
+    providerEmail: user?.email || "",
     isPrivate: false,
     allowedUsers: "",
     allowedRoles: "",
@@ -66,6 +90,14 @@ export default function PolicyForm() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState(null);
 
+  // Edit mode: fetch the existing entry and seed the form from it. Unlike
+  // InfraCat's public detail endpoint, getMyDatasetDetails is provider-scoped
+  // (ownership-checked server-side), so it returns every field this form
+  // writes — providerId/providerEmail still stay derived from the logged-in
+  // user above, never from fetched data, same as InfraPolicyForm.jsx.
+  const [loadingRecord, setLoadingRecord] = useState(isEditMode);
+  const [loadError, setLoadError] = useState(null);
+
   useEffect(() => {
     if (isAdmin) {
       navigate("/app/admin", { replace: true });
@@ -77,6 +109,48 @@ export default function PolicyForm() {
       navigate(returnTo, { replace: true });
     }
   }, [hasDataProvider, returnTo]);
+
+  useEffect(() => {
+    if (!isEditMode || !token) return;
+    let cancelled = false;
+
+    getMyDatasetDetails(token, itemId)
+      .then(res => {
+        if (cancelled) return;
+        const rules = res?.data?.rules;
+        if (res?.status !== "SUCCESS" || !rules) {
+          throw new Error(res?.error || "Dataset entry not found");
+        }
+        setForm(f => ({
+          ...f,
+          datasetName: rules.dataset?.name || "",
+          dataUrl: res.data.data_url || "",
+          application: rules.application?.id || f.application,
+          allowedOrg: rules.allowedOrg?.id || f.allowedOrg,
+          accessLevel: rules.accessLevel || f.accessLevel,
+          purpose: rules.purpose || f.purpose,
+          notes: rules.notes || "",
+          isPrivate: Boolean(res.data.is_private),
+          allowedUsers: (rules.allowed_users || []).join(", "),
+          allowedRoles: (rules.allowed_roles || []).join(", "),
+          requiredRoles: (rules.required_roles || []).join(", "),
+          allowedScopes: (rules.allowed_scopes || []).join(", "),
+          requiredScopes: (rules.required_scopes || []).join(", "),
+          allowedActions: (rules.allowed_actions || []).join(", "),
+          expiresAt: res.data.expiresAt ? String(res.data.expiresAt).slice(0, 10) : "",
+        }));
+      })
+      .catch(err => {
+        if (!cancelled) setLoadError(err?.message || String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingRecord(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditMode, itemId, token]);
 
   const onSubmit = async e => {
     e.preventDefault();
@@ -96,6 +170,11 @@ export default function PolicyForm() {
       is_private: form.isPrivate,
       data_url: form.dataUrl,
       rules: {
+        // Marks this as a dataset access policy — required by the backend's
+        // POST /policy role gate (data-provider role) and by the "My
+        // Datasets" provider-scoped list/ownership check, mirroring
+        // InfraPolicyForm.jsx's rules.policy_type: "infra-provider".
+        policy_type: "data-provider",
         dataset: {
           id: form.datasetId,
           name: form.datasetName,
@@ -138,27 +217,35 @@ export default function PolicyForm() {
     <div>
       <div className="page-header">
         <div className="page-header-title">
-          <h3 className="section-title" style={{ marginBottom: 0 }}>Set Policy</h3>
+          <h3 className="section-title" style={{ marginBottom: 0 }}>
+            {isEditMode ? "Edit Policy" : "Set Policy"}
+          </h3>
           <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
-            Submit a dataset access policy to APD so TOP can validate workload contracts.
+            {isEditMode
+              ? "Update your dataset access policy in APD."
+              : "Submit a dataset access policy to APD so TOP can validate workload contracts."}
           </div>
         </div>
         <div className="page-header-actions">
-          <button
-            className="btn btn-secondary"
-            style={{ width: "auto" }}
-            type="button"
-            disabled={submitted}
-            onClick={() => navigate(returnTo)}
-          >
+          <button className="btn btn-secondary" style={{ width: "auto" }} type="button" disabled={submitted} onClick={() => navigate(returnTo)}>
             Back
           </button>
         </div>
       </div>
 
       {error ? <div className="error-message">{error}</div> : null}
-      {submitted ? <div className="info-banner">Policy stored in APD successfully. Redirecting...</div> : null}
+      {loadError ? <div className="error-message">{loadError}</div> : null}
+      {submitted ? (
+        <div className="info-banner">
+          {isEditMode
+            ? "Policy updated successfully. Redirecting..."
+            : "Policy stored in APD successfully. Redirecting..."}
+        </div>
+      ) : null}
 
+      {loadingRecord ? (
+        <div className="card">Loading dataset details...</div>
+      ) : loadError ? null : (
       <div className="card">
         <form onSubmit={onSubmit}>
           <div className="grid">
@@ -275,22 +362,22 @@ export default function PolicyForm() {
           </div>
 
           <div style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px solid var(--border-color)" }}>
-            <div style={{ fontWeight: 600, marginBottom: "8px" }}>Access Rules</div>
-
+            <div style={{ fontWeight: 600, marginBottom: "8px" }}>Provider</div>
             <div className="grid">
-              <div className="form-group">
+              <div className="form-group" style={{ marginBottom: 0 }}>
                 <label>Provider ID</label>
                 <input
                   className="input"
-                  type="text"
+                  readOnly
+                  disabled
                   value={form.providerId}
-                  onChange={e => setForm(f => ({ ...f, providerId: e.target.value }))}
-                  placeholder="e.g. provider-123"
-                  disabled={submitted}
                 />
+                <div style={{ fontSize: "12px", color: "var(--text-light)", marginTop: "4px" }}>
+                  Auto-generated
+                </div>
               </div>
 
-              <div className="form-group">
+              <div className="form-group" style={{ marginBottom: 0 }}>
                 <label>Provider Email</label>
                 <input
                   className="input"
@@ -302,6 +389,10 @@ export default function PolicyForm() {
                 />
               </div>
             </div>
+          </div>
+
+          <div style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px solid var(--border-color)" }}>
+            <div style={{ fontWeight: 600, marginBottom: "8px" }}>Access Rules</div>
 
             <div className="form-group">
               <label style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -415,11 +506,14 @@ export default function PolicyForm() {
               Cancel
             </button>
             <button className="btn btn-primary" style={{ width: "auto" }} type="submit" disabled={submitted}>
-              {submitted ? "Setting..." : "Set Policy"}
+              {submitted
+                ? (isEditMode ? "Updating..." : "Setting...")
+                : (isEditMode ? "Update Policy" : "Set Policy")}
             </button>
           </div>
         </form>
       </div>
+      )}
     </div>
   );
 }
