@@ -161,23 +161,6 @@ export default function UserDashboard() {
             </button>
           ) : null}
 
-          {isSMPC && hasInfraProvider ? (
-            <button
-              className="action-card"
-              type="button"
-              onClick={() =>
-                navigate("/app/services/infra-policy/my", {
-                  state: { returnTo: location.pathname },
-                })
-              }
-            >
-              <div className="action-title">My Infrastructure</div>
-              <div className="action-description">
-                View, edit, or delete infrastructure you've registered.
-              </div>
-            </button>
-          ) : null}
-
           {keyRoleName && keyStatus?.exists ? (
             <button
               className="action-card"

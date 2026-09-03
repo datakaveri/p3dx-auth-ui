@@ -1,37 +1,37 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
-import { deleteInfraPolicy, listMyInfraPolicies } from "../api/policies";
+import { deleteDatasetPolicy, listMyDatasetPolicies } from "../api/policies";
 import Modal from "../components/Modal";
 
-const PLATFORM_LABELS = { azure: "Azure", gcp: "GCP", aws: "AWS" };
-
-// Minimal "My Infrastructure" dashboard (Infra_Form_Changes.md item #8,
-// the non-deferred slice): list the infra-provider's own registrations,
-// Edit (→ InfraPolicyForm in edit mode) and Delete (soft delete, confirmed).
-// No search/filter/sort/pagination — deliberately out of scope.
-export default function MyInfraDashboard() {
+// "My Datasets" dashboard — the data-provider counterpart to
+// MyInfraDashboard.jsx, same shape: list the data-provider's own dataset
+// access policies, Edit (-> PolicyForm in edit mode) and Delete (soft
+// delete, confirmed). No search/filter/sort/pagination — deliberately out
+// of scope, mirroring the infra dashboard.
+export default function MyDatasetsDashboard() {
   const { user, token } = useOutletContext();
   const roles = useMemo(() => user?.roles || [], [user]);
-  const hasInfraProvider = roles.includes("infra-provider");
-  // A user holding both provider roles gets a tab switcher to "My Datasets"
-  // below (see the Manage nav edge case) — single-role users see none of it.
   const hasDataProvider = roles.includes("data-provider");
+  // A user holding both provider roles gets a tab switcher to "My
+  // Infrastructure" below (see the Manage nav edge case) — single-role
+  // users see none of it.
+  const hasInfraProvider = roles.includes("infra-provider");
 
   const navigate = useNavigate();
   const location = useLocation();
-  const returnTo = location.state?.returnTo || "/app/services/smpc";
+  const returnTo = location.state?.returnTo || "/app/services/fl";
 
-  const [infra, setInfra] = useState([]);
+  const [datasets, setDatasets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [modal, setModal] = useState({ open: false, item: null });
 
   useEffect(() => {
-    if (!hasInfraProvider) {
+    if (!hasDataProvider) {
       navigate(returnTo, { replace: true });
     }
-  }, [hasInfraProvider, returnTo]);
+  }, [hasDataProvider, returnTo]);
 
   const formatDate = value => {
     if (!value) return "";
@@ -40,14 +40,14 @@ export default function MyInfraDashboard() {
   };
 
   const refresh = async () => {
-    if (!token || !hasInfraProvider) return;
+    if (!token || !hasDataProvider) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await listMyInfraPolicies(token);
-      setInfra(Array.isArray(res?.data) ? res.data : []);
+      const res = await listMyDatasetPolicies(token);
+      setDatasets(Array.isArray(res?.data) ? res.data : []);
     } catch (e) {
-      setError(e?.message || "Failed to load your infrastructure");
+      setError(e?.message || "Failed to load your datasets");
     } finally {
       setLoading(false);
     }
@@ -55,7 +55,7 @@ export default function MyInfraDashboard() {
 
   useEffect(() => {
     refresh();
-  }, [token, hasInfraProvider]);
+  }, [token, hasDataProvider]);
 
   const openDelete = item => setModal({ open: true, item });
   const closeDelete = () => setModal({ open: false, item: null });
@@ -68,7 +68,7 @@ export default function MyInfraDashboard() {
     setActionLoading(true);
     setError(null);
     try {
-      await deleteInfraPolicy(token, item.item_id);
+      await deleteDatasetPolicy(token, item.item_id);
       closeDelete();
       await refresh();
     } catch (e) {
@@ -82,23 +82,23 @@ export default function MyInfraDashboard() {
     <div>
       {hasInfraProvider && hasDataProvider ? (
         <div className="cat-tabs" style={{ marginBottom: "16px" }}>
+          <button type="button" className="cat-tab cat-tab--active">
+            Datasets
+          </button>
           <button
             type="button"
             className="cat-tab"
-            onClick={() => navigate("/app/services/policies/my", { state: { returnTo } })}
+            onClick={() => navigate("/app/services/infra-policy/my", { state: { returnTo } })}
           >
-            Datasets
-          </button>
-          <button type="button" className="cat-tab cat-tab--active">
             Infrastructure
           </button>
         </div>
       ) : null}
       <div className="page-header">
         <div className="page-header-title">
-          <h3 className="section-title" style={{ marginBottom: 0 }}>My Infrastructure</h3>
+          <h3 className="section-title" style={{ marginBottom: 0 }}>My Datasets</h3>
           <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
-            Infrastructure you've registered for SMPC workloads.
+            Dataset access policies you've registered.
           </div>
         </div>
         <div className="page-header-actions">
@@ -115,7 +115,7 @@ export default function MyInfraDashboard() {
             style={{ width: "auto" }}
             type="button"
             onClick={() =>
-              navigate("/app/services/infra-policy", {
+              navigate("/app/services/policies", {
                 state: { returnTo: location.pathname },
               })
             }
@@ -132,10 +132,10 @@ export default function MyInfraDashboard() {
           <table className="table">
             <thead>
               <tr>
-                <th>Infrastructure ID</th>
+                <th>Dataset ID</th>
                 <th>Name</th>
-                <th>Region</th>
-                <th>Cloud Provider</th>
+                <th>Application</th>
+                <th>Access Level</th>
                 <th>Issued</th>
                 <th style={{ width: "180px" }}>Actions</th>
               </tr>
@@ -145,17 +145,17 @@ export default function MyInfraDashboard() {
                 <tr>
                   <td colSpan={6} className="muted">Loading...</td>
                 </tr>
-              ) : infra.length === 0 ? (
+              ) : datasets.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="muted">No infrastructure registered yet</td>
+                  <td colSpan={6} className="muted">No datasets registered yet</td>
                 </tr>
               ) : (
-                infra.map(item => (
+                datasets.map(item => (
                   <tr key={item.item_id}>
                     <td>{item.item_id}</td>
                     <td>{item.name}</td>
-                    <td>{item.region}</td>
-                    <td>{PLATFORM_LABELS[item.provider] || item.provider}</td>
+                    <td>{item.application}</td>
+                    <td>{item.access_level}</td>
                     <td>{formatDate(item.issued_at)}</td>
                     <td>
                       <div style={{ display: "flex", gap: "8px" }}>
@@ -164,7 +164,7 @@ export default function MyInfraDashboard() {
                           style={{ width: "auto" }}
                           disabled={actionLoading}
                           onClick={() =>
-                            navigate(`/app/services/infra-policy/edit/${encodeURIComponent(item.item_id)}`, {
+                            navigate(`/app/services/policies/edit/${encodeURIComponent(item.item_id)}`, {
                               state: { returnTo: location.pathname },
                             })
                           }
@@ -190,7 +190,7 @@ export default function MyInfraDashboard() {
 
       <Modal
         open={modal.open}
-        title="Delete Infrastructure"
+        title="Delete Dataset"
         description={modal.item ? `Delete "${modal.item.name || modal.item.item_id}"? This can't be undone from here.` : ""}
         confirmText={actionLoading ? "Deleting..." : "Delete"}
         confirmVariant="danger"
