@@ -1,8 +1,19 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
-import { DataOwnerForm } from "../components/RoleForms";
-import { getMyNotifications, markNotificationRead, respondToNotification } from "../api/auth";
+import { DataOwnerForm, DP_VM_NAME_KEY } from "../components/RoleForms";
+import { getMyNotifications, getNotificationResponses, markNotificationRead, respondToNotification, notifyAzureSignIn } from "../api/auth";
+import { signInProviderWithAzure, completeProviderAzureSignIn } from "../api/azureAuth";
+import { triggerAutoProvision, subscribeToVmProvisioning, downloadVmPrivateKey } from "../api/vmProvisioning";
+import FLSessionStartModal from "../components/FLSessionStartModal";
 import { BACKEND_URL } from "../config";
+
+function parseNotificationPayload(n) {
+  try {
+    return typeof n?.payload === "string" ? JSON.parse(n.payload || "{}") : (n?.payload || {});
+  } catch {
+    return {};
+  }
+}
 
 export default function FederatedLearningDashboard() {
   const { user, token } = useOutletContext();
@@ -19,9 +30,46 @@ export default function FederatedLearningDashboard() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [showNotifications, setShowNotifications] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
+  // Closed messages, both lists — dismiss is local-only (not persisted), so a
+  // closed message just disappears from view here and comes back on reload.
+  const [dismissedIds, setDismissedIds] = useState(() => new Set());
+
+  // Messages for output owners: notifications they've sent, plus each
+  // recipient's response.
+  const [sentNotifications, setSentNotifications] = useState([]);
+  const [sentNotificationsLoading, setSentNotificationsLoading] = useState(false);
+  const [showSentNotifications, setShowSentNotifications] = useState(false);
   // Participation-consent: per-notification reason draft + in-flight respond id.
   const [responseDrafts, setResponseDrafts] = useState({});
   const [respondingId, setRespondingId] = useState(null);
+  // FL-session-start sign-in modal: auto-opened as soon as an unread
+  // "fl_session_start" notification is seen (matching the owner side, where
+  // starting a session pops the Azure sign-in dialog immediately) - it can
+  // also be reopened manually via "Sign in with Azure" on the notification
+  // (see the notification list below and FLSessionStartModal).
+  const [sessionStartModal, setSessionStartModal] = useState({ open: false, notification: null });
+  const [azureSignInResult, setAzureSignInResult] = useState(null);
+  const [signingIn, setSigningIn] = useState(false);
+  // Notification ids we've already auto-popped the modal for, so a
+  // still-unread notification doesn't reopen it on every poll/refetch.
+  const autoOpenedSessionStartIds = useRef(new Set());
+  // Live progress of the VM Terraform is creating for this provider,
+  // auto-kicked-off right after their Azure sign-in above completes (see
+  // startVmProvisioning) - streamed over vm-provisioning/stream and shown
+  // inline in FLSessionStartModal.
+  const [vmProvisioning, setVmProvisioning] = useState({ status: "idle", events: [] });
+  const [vmKeyError, setVmKeyError] = useState(null);
+  const vmProvisionUnsubRef = useRef(null);
+  // Editable right in the sign-in popup (see FLSessionStartModal) so naming
+  // the VM can't be missed by skipping the separate Data Provider Form -
+  // both read/write the same DP_VM_NAME_KEY sessionStorage entry.
+  const [dpVmName, setDpVmNameState] = useState(
+    () => sessionStorage.getItem(DP_VM_NAME_KEY) || user?.username || ""
+  );
+  const setDpVmName = (value) => {
+    setDpVmNameState(value);
+    sessionStorage.setItem(DP_VM_NAME_KEY, value);
+  };
 
   const roles = useMemo(() => user?.roles || [], [user]);
   const hasDataProvider = roles.includes("data-provider");
@@ -38,8 +86,13 @@ export default function FederatedLearningDashboard() {
     return "Service";
   }, [location.pathname]);
 
-  // Fetch notifications for data providers
-  const fetchNotifications = async () => {
+  // Fetch notifications for data providers. `isLiveUpdate` distinguishes a
+  // fresh SSE push (a notification that just landed while this page is open)
+  // from every other call (initial mount, manual refresh) - only a live push
+  // is allowed to auto-pop the sign-in modal, otherwise a session-start
+  // invite that's simply still unread from earlier would re-open the popup
+  // on every page load/refresh instead of once, right after it actually happens.
+  const fetchNotifications = async (isLiveUpdate = false) => {
     if (!token || !hasDataProvider) return;
     setNotificationsLoading(true);
     try {
@@ -53,13 +106,168 @@ export default function FederatedLearningDashboard() {
       const res = await getMyNotifications(token);
       console.log('[DEBUG] Notifications response:', res);
       if (res?.status === "SUCCESS") {
-        setNotifications(Array.isArray(res.notifications) ? res.notifications : []);
+        const list = Array.isArray(res.notifications) ? res.notifications : [];
+        setNotifications(list);
         setUnreadCount(res.unread_count || 0);
+
+        const unreadSessionStarts = list.filter(
+          (n) => !n.read && parseNotificationPayload(n).kind === "fl_session_start"
+        );
+        if (isLiveUpdate) {
+          // Pop the Azure sign-in dialog for a session-start request that just
+          // arrived — but only ones not already accounted for, so a live push
+          // triggered by some other notification doesn't reopen the popup for
+          // an invite the provider already saw and dismissed earlier.
+          const pending = unreadSessionStarts.find((n) => !autoOpenedSessionStartIds.current.has(n.id));
+          if (pending) {
+            // Marked seen right away so a poll landing during the delay below
+            // can't queue up a second pop for the same invite; the popup
+            // itself is deliberately held for a few seconds after the owner's
+            // sign-in so it doesn't feel like it's firing in the same instant.
+            autoOpenedSessionStartIds.current.add(pending.id);
+            setTimeout(() => {
+              setAzureSignInResult(null);
+              setSessionStartModal({ open: true, notification: pending });
+            }, 5000);
+          }
+        } else {
+          // Not a live push (initial load / manual refresh): these invites
+          // predate this page view, so mark them seen without popping —
+          // otherwise a still-unread invite from earlier would re-open the
+          // modal every time the dashboard is loaded or refreshed.
+          unreadSessionStarts.forEach((n) => autoOpenedSessionStartIds.current.add(n.id));
+        }
       }
     } catch (err) {
       console.warn("Failed to fetch notifications:", err);
     } finally {
       setNotificationsLoading(false);
+    }
+  };
+
+  // Fetch this output owner's own sent messages (with recipients' responses).
+  const fetchSentNotifications = async () => {
+    if (!token || !hasOutputOwner) return;
+    setSentNotificationsLoading(true);
+    try {
+      const res = await getNotificationResponses(token);
+      if (res?.status === "SUCCESS") {
+        setSentNotifications(Array.isArray(res.notifications) ? res.notifications : []);
+      }
+    } catch (err) {
+      console.warn("Failed to fetch sent notifications:", err);
+    } finally {
+      setSentNotificationsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!hasOutputOwner || !token) return;
+    fetchSentNotifications();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, hasOutputOwner]);
+
+  // Close one message — local-only, just hides it from this view.
+  const handleDismiss = (notificationId) => {
+    setDismissedIds(prev => new Set(prev).add(notificationId));
+  };
+
+  // Close every currently-visible message in one list at once.
+  const handleClearAll = (ids) => {
+    setDismissedIds(prev => {
+      const next = new Set(prev);
+      ids.forEach(id => next.add(id));
+      return next;
+    });
+  };
+
+  // Shows the success banner, tells the output owner (best-effort - this
+  // shouldn't block showing success just because the notify call failed),
+  // and marks the triggering notification read. Shared by the inline
+  // (silent-token) path below and by the post-redirect resume effect.
+  const finishAzureSignIn = async (account, ctx) => {
+    setAzureSignInResult({ ok: true, text: `Signed in as ${account?.username || "your Azure account"}.` });
+    const freshToken = sessionStorage.getItem('access_token') || token;
+    if (ctx?.ownerUsername && freshToken) {
+      try {
+        await notifyAzureSignIn(ctx.ownerUsername, ctx.submissionId, freshToken);
+      } catch (err) {
+        console.warn("Failed to notify owner of Azure sign-in:", err);
+      }
+    }
+    if (ctx?.notificationId) {
+      handleMarkRead(ctx.notificationId);
+    }
+    startVmProvisioning(account, freshToken);
+  };
+
+  // Kicks off automated VM creation (backend device-code Azure login +
+  // Terraform, see vmAutoProvision.service.js) right after this provider's
+  // sign-in above completes. Named after whatever they typed into the "VM
+  // Name" field on their Data Provider Form (see DP_VM_NAME_KEY /
+  // RoleForms.jsx) - falls back to their account name if they never touched
+  // that form. Fire-and-forget: progress arrives over the vm-provisioning
+  // SSE subscription below.
+  const startVmProvisioning = async (account, freshToken) => {
+    const vmName = sessionStorage.getItem(DP_VM_NAME_KEY) || account?.username || user?.username;
+    const authToken = freshToken || token;
+    if (!vmName || !authToken) return;
+    try {
+      await triggerAutoProvision("data-provider", authToken, vmName);
+    } catch (err) {
+      setVmProvisioning(prev => ({
+        status: "error",
+        events: [...prev.events, { step: "Starting", status: "error", message: err.message }],
+      }));
+    }
+  };
+
+  // Resume after a full-page Azure redirect. signInProviderWithAzure uses
+  // loginRedirect rather than a popup (see azureAuth.js), so a fresh sign-in
+  // finishes here, on the next page load, rather than inline below.
+  useEffect(() => {
+    (async () => {
+      try {
+        const resumed = await completeProviderAzureSignIn();
+        if (resumed) {
+          setSigningIn(false);
+          // The redirect reloaded the page, so the modal that was open before
+          // navigating away is gone — reopen it with a stand-in notification
+          // (built from the stashed context) so the sign-in confirmation and
+          // VM provisioning progress are actually visible, not just fired
+          // into state nobody's looking at.
+          setSessionStartModal({
+            open: true,
+            notification: { id: resumed.context?.notificationId, message: "You've signed in with Azure for this FL session." },
+          });
+          await finishAzureSignIn(resumed.account, resumed.context);
+        }
+      } catch (err) {
+        setAzureSignInResult({ ok: false, text: `Azure sign-in failed: ${err?.message || String(err)}` });
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Provider signs in with their own Azure account in response to the
+  // FL-session-start popup - separate identity from the output owner's Azure
+  // login used for ARM/Terraform provisioning.
+  const handleAzureSignIn = async () => {
+    setSigningIn(true);
+    const payload = parseNotificationPayload(sessionStartModal.notification);
+    const context = {
+      ownerUsername: payload.output_owner_id,
+      submissionId: payload.submission_id,
+      notificationId: sessionStartModal.notification?.id,
+    };
+    try {
+      const result = await signInProviderWithAzure(context);
+      if (result.redirected) return; // page is navigating to Microsoft
+      await finishAzureSignIn(result.account, context);
+    } catch (err) {
+      setAzureSignInResult({ ok: false, text: `Azure sign-in failed: ${err?.message || String(err)}` });
+    } finally {
+      setSigningIn(false);
     }
   };
 
@@ -120,7 +328,7 @@ export default function FederatedLearningDashboard() {
       try {
         const message = JSON.parse(event.data);
         if (message.type === 'notification') {
-          fetchNotifications();
+          fetchNotifications(true);
           setShowNotifications(true);
         }
       } catch (err) {
@@ -143,6 +351,37 @@ export default function FederatedLearningDashboard() {
       wsRef.current = null;
     };
   }, [token, hasDataProvider, user?.username]);
+
+  // Live progress for this provider's auto-provisioned VM (see
+  // startVmProvisioning above), independent of the sign-in modal being open
+  // so a page refresh mid-provisioning still picks the run back up.
+  useEffect(() => {
+    if (!hasDataProvider || !user?.username) return undefined;
+    vmProvisionUnsubRef.current = subscribeToVmProvisioning(user.username, "data-provider", (data) => {
+      setVmProvisioning({ status: data.status || "idle", events: data.events || [] });
+    });
+    return () => {
+      vmProvisionUnsubRef.current?.();
+      vmProvisionUnsubRef.current = null;
+    };
+  }, [hasDataProvider, user?.username]);
+
+  const handleDownloadVmKey = async () => {
+    setVmKeyError(null);
+    try {
+      await downloadVmPrivateKey(token);
+    } catch (err) {
+      setVmKeyError(err.message);
+    }
+  };
+
+  // "fl_session_start" invites live only in the popup (see FLSessionStartModal
+  // above) - they're deliberately excluded from the list so a provider never
+  // sees the same invite sitting around twice, in the popup and in the feed.
+  const visibleNotifications = notifications.filter(
+    n => !dismissedIds.has(n.id) && parseNotificationPayload(n).kind !== "fl_session_start"
+  );
+  const visibleSentNotifications = sentNotifications.filter(n => !dismissedIds.has(n.id));
 
   return (
     <div>
@@ -235,6 +474,110 @@ export default function FederatedLearningDashboard() {
         </div>
       )}
 
+      {/* Messages Section for the output owner / user side: notifications
+          this user has sent, plus each recipient's response. */}
+      {hasOutputOwner && (
+        <div className="card" style={{ marginBottom: "18px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <h3 className="section-title" style={{ margin: 0 }}>Messages</h3>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <button
+                className="btn btn-secondary"
+                style={{ width: "auto", padding: "6px 12px", fontSize: "0.85rem" }}
+                onClick={fetchSentNotifications}
+              >
+                Refresh
+              </button>
+              <button
+                className="btn btn-secondary"
+                style={{ width: "auto", padding: "6px 12px", fontSize: "0.85rem" }}
+                onClick={() => setShowSentNotifications(!showSentNotifications)}
+              >
+                {showSentNotifications ? "Hide" : "Show"} Messages
+              </button>
+              {visibleSentNotifications.length > 0 && (
+                <button
+                  className="btn btn-secondary"
+                  style={{ width: "auto", padding: "6px 12px", fontSize: "0.85rem" }}
+                  onClick={() => handleClearAll(visibleSentNotifications.map(n => n.id))}
+                >
+                  Clear All
+                </button>
+              )}
+            </div>
+          </div>
+
+          {showSentNotifications && (
+            <div style={{ marginTop: "16px" }}>
+              {sentNotificationsLoading ? (
+                <div style={{ padding: "12px", color: "#888", fontSize: "0.9rem" }}>Loading messages...</div>
+              ) : visibleSentNotifications.length === 0 ? (
+                <div style={{ padding: "12px", color: "#888", fontSize: "0.9rem" }}>No messages yet.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {visibleSentNotifications.map((notification) => (
+                    <div
+                      key={notification.id}
+                      style={{
+                        padding: "12px 16px",
+                        borderRadius: "8px",
+                        backgroundColor: "var(--bg-light, #f8f9fa)",
+                        border: "1px solid var(--border-color, #ddd)",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "8px",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px" }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: "0.75rem", color: "#888", marginBottom: "4px" }}>
+                            {new Date(notification.created_at).toLocaleString()}
+                          </div>
+                          <div style={{ fontSize: "0.95rem", color: "var(--text-dark, #333)" }}>
+                            {notification.message}
+                          </div>
+                          <div style={{ fontSize: "0.8rem", color: "var(--primary-color, #6c63ff)", marginTop: "4px" }}>
+                            To: {notification.recipient_username || "recipient"}
+                          </div>
+                          {notification.response ? (
+                            <div style={{
+                              fontSize: "0.85rem", fontWeight: 500, marginTop: "4px",
+                              color: notification.response === "accepted" ? "var(--success-color, #27ae60)" : "#e74c3c",
+                            }}>
+                              {notification.response === "accepted" ? "✅ Accepted" : "❌ Declined"}
+                              {notification.response_message && (
+                                <div style={{ fontWeight: 400, color: "var(--text-light, #555)", marginTop: "2px" }}>
+                                  Note: {notification.response_message}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: "0.8rem", color: "#888", marginTop: "4px" }}>Awaiting response</div>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => handleDismiss(notification.id)}
+                          title="Close"
+                          aria-label="Close"
+                          style={{
+                            padding: "2px 8px", fontSize: "0.9rem", lineHeight: 1,
+                            backgroundColor: "transparent", color: "#888",
+                            border: "1px solid var(--border-color, #ddd)", borderRadius: "4px",
+                            cursor: "pointer", whiteSpace: "nowrap",
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Notifications Section for Data Providers */}
       {hasDataProvider && (
         <div className="card" style={{ marginBottom: "18px" }}>
@@ -281,6 +624,15 @@ export default function FederatedLearningDashboard() {
               >
                 {showNotifications ? "Hide" : "Show"} Notifications
               </button>
+              {visibleNotifications.length > 0 && (
+                <button
+                  className="btn btn-secondary"
+                  style={{ width: "auto", padding: "6px 12px", fontSize: "0.85rem" }}
+                  onClick={() => handleClearAll(visibleNotifications.map(n => n.id))}
+                >
+                  Clear All
+                </button>
+              )}
             </div>
           </div>
 
@@ -288,11 +640,11 @@ export default function FederatedLearningDashboard() {
             <div style={{ marginTop: "16px" }}>
               {notificationsLoading ? (
                 <div style={{ padding: "12px", color: "#888", fontSize: "0.9rem" }}>Loading notifications...</div>
-              ) : notifications.length === 0 ? (
+              ) : visibleNotifications.length === 0 ? (
                 <div style={{ padding: "12px", color: "#888", fontSize: "0.9rem" }}>No notifications yet.</div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                  {notifications.map((notification) => {
+                  {visibleNotifications.map((notification) => {
                     const payload = typeof notification.payload === "string"
                       ? (() => { try { return JSON.parse(notification.payload || "{}"); } catch { return {}; } })()
                       : (notification.payload || {});
@@ -339,21 +691,36 @@ export default function FederatedLearningDashboard() {
                             From: {ownerLabel}
                           </div>
                         </div>
-                        {!isRequest && !notification.read && (
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          {!isRequest && !notification.read && (
+                            <button
+                              onClick={() => handleMarkRead(notification.id)}
+                              style={{
+                                padding: "4px 10px", fontSize: "0.75rem",
+                                backgroundColor: "var(--primary-color, #6c63ff)", color: "white",
+                                border: "none", borderRadius: "4px", cursor: "pointer", whiteSpace: "nowrap",
+                              }}
+                            >
+                              Mark Read
+                            </button>
+                          )}
+                          {!isRequest && notification.read && (
+                            <span style={{ fontSize: "0.75rem", color: "#888", whiteSpace: "nowrap" }}>Read</span>
+                          )}
                           <button
-                            onClick={() => handleMarkRead(notification.id)}
+                            onClick={() => handleDismiss(notification.id)}
+                            title="Close"
+                            aria-label="Close"
                             style={{
-                              padding: "4px 10px", fontSize: "0.75rem",
-                              backgroundColor: "var(--primary-color, #6c63ff)", color: "white",
-                              border: "none", borderRadius: "4px", cursor: "pointer", whiteSpace: "nowrap",
+                              padding: "2px 8px", fontSize: "0.9rem", lineHeight: 1,
+                              backgroundColor: "transparent", color: "#888",
+                              border: "1px solid var(--border-color, #ddd)", borderRadius: "4px",
+                              cursor: "pointer", whiteSpace: "nowrap",
                             }}
                           >
-                            Mark Read
+                            ×
                           </button>
-                        )}
-                        {!isRequest && notification.read && (
-                          <span style={{ fontSize: "0.75rem", color: "#888", whiteSpace: "nowrap" }}>Read</span>
-                        )}
+                        </div>
                       </div>
 
                       {isRequest && (requestedList.length > 0 || selectedList.length > 0) && (() => {
@@ -510,6 +877,57 @@ export default function FederatedLearningDashboard() {
                     </div>
                     );
                   })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      <FLSessionStartModal
+        open={sessionStartModal.open}
+        notification={sessionStartModal.notification}
+        onClose={() => setSessionStartModal({ open: false, notification: null })}
+        onSignIn={handleAzureSignIn}
+        signingIn={signingIn}
+        result={azureSignInResult}
+        vmName={dpVmName}
+        onVmNameChange={setDpVmName}
+      />
+
+      {vmProvisioning.events.length > 0 && (
+        <div className="card" style={{ marginBottom: "18px" }}>
+          <h3 className="section-title" style={{ marginTop: 0 }}>Provisioning your VM</h3>
+          <div style={{ fontSize: "13px", marginBottom: "6px" }}>
+            Status: <strong>{vmProvisioning.status}</strong>
+          </div>
+          {(() => {
+            const deviceLoginEvent = vmProvisioning.events.find(
+              (e) => e.step === "Azure device login" && e.status === "running"
+            );
+            return deviceLoginEvent && (
+              <div className="fl-result-banner fl-result-banner--ok" style={{ marginBottom: "8px" }}>
+                {deviceLoginEvent.message}
+              </div>
+            );
+          })()}
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, fontSize: "13px" }}>
+            {vmProvisioning.events.map((e, i) => (
+              <li key={i} style={{ padding: "3px 0" }}>
+                {e.status === "error" ? "❌" : e.status === "running" ? "⏳" : "✅"} <strong>{e.step}</strong>
+                {e.command && <code style={{ marginLeft: "6px", opacity: 0.8 }}>{e.command}</code>}
+                {e.message && <span style={{ marginLeft: "6px" }}>— {e.message}</span>}
+              </li>
+            ))}
+          </ul>
+          {vmProvisioning.status === "done" && (
+            <div style={{ marginTop: "10px" }}>
+              <button className="btn btn-secondary" type="button" style={{ width: "auto" }} onClick={handleDownloadVmKey}>
+                Download SSH Key
+              </button>
+              {vmKeyError && (
+                <div className="fl-result-banner fl-result-banner--error" style={{ marginTop: "8px" }}>
+                  {vmKeyError}
                 </div>
               )}
             </div>

@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { BACKEND_URL } from '../config';
-import { notifyProviders, getNotificationResponses, notifyRoster, getSessionContract } from '../api/auth';
+import { notifyProviders, getNotificationResponses, notifyRoster, getSessionContract, startFlSession, getMyNotifications } from '../api/auth';
+import { getAzureAccessToken } from '../api/azureAuth';
+import { triggerAutoProvision, subscribeToVmProvisioning, downloadVmPrivateKey } from '../api/vmProvisioning';
 
 const GOVERNANCE_LAYER_URL = `${BACKEND_URL}/p3dx/form-submissions`;
 const DATA_PROVIDER_FORM_URL = `${BACKEND_URL}/p3dx/data-provider-forms`;
@@ -119,7 +121,10 @@ export default function FederatedLearning() {
     components: '',
     ram_usage: '',
     ip_address: '',
-    port: ''
+    port: '',
+    // Not part of buildOwnerPayload below (governance layer doesn't need
+    // it) - only read by runStartFlSession to name the VM Terraform creates.
+    vm_name: user?.username || ''
   });
   const [msg, setMsg] = useState(null);
   // Persist the last submission id so the report stays downloadable after a page reload.
@@ -136,6 +141,11 @@ export default function FederatedLearning() {
   const [distributeResult, setDistributeResult] = useState(null);
   // Data-provider "download my client config" status.
   const [dpConfigMsg, setDpConfigMsg] = useState(null);
+  // Live progress of the VM Terraform is creating for this owner, auto-kicked
+  // off right after Start FL Session succeeds (see runStartFlSession) - same
+  // backend flow as the data-provider side, just role: 'user'.
+  const [vmProvisioning, setVmProvisioning] = useState({ status: 'idle', events: [] });
+  const [vmKeyError, setVmKeyError] = useState(null);
 
   // Step tracking for federated learning flow (only for output owners). The owner
   // fills + submits the configuration first ('form'), then selects the data
@@ -152,6 +162,10 @@ export default function FederatedLearning() {
   // this owner's previously-sent notifications so the selection list shows
   // live willing/not-willing status next to each provider.
   const [providerResponses, setProviderResponses] = useState({});
+  // Providers who've completed their Azure sign-in for the started FL
+  // session, keyed by username -> ISO timestamp first seen. Read back from
+  // this owner's own notification inbox (each provider posts one on sign-in).
+  const [azureSignIns, setAzureSignIns] = useState({});
   // "Send Message" to selected providers, in flight flag.
   const [sendingMessage, setSendingMessage] = useState(false);
   // Providers that have actually been notified via "Send Message" so far -
@@ -166,6 +180,10 @@ export default function FederatedLearning() {
   // Gates "Start FL Session" - only unlocked once the owner has sent the
   // final roster announcement to the confirmed participants.
   const [finalRosterSent, setFinalRosterSent] = useState(false);
+  // The exact roster (id/username/email) sent as the final participant list -
+  // kept around so "Start FL Session" can notify the same providers without
+  // re-deriving the willing list.
+  const [finalRoster, setFinalRoster] = useState([]);
   // "View Contract" - the stored session contract (draft or finalized), shown
   // on demand rather than polled.
   const [contract, setContract] = useState(null);
@@ -302,6 +320,31 @@ export default function FederatedLearning() {
     }
   }, [token, reportSubmissionId]);
 
+  // Pull this owner's own notification inbox for "azure_signin" notices -
+  // one posted by each provider as soon as they finish signing in to Azure
+  // for this session - so the live status shows up here without a refresh.
+  const fetchAzureSignIns = useCallback(async () => {
+    const freshToken = sessionStorage.getItem('access_token') || token;
+    if (!freshToken) return;
+    try {
+      const res = await getMyNotifications(freshToken);
+      const mine = Array.isArray(res.notifications) ? res.notifications : [];
+      setAzureSignIns(prev => {
+        const next = { ...prev };
+        mine.forEach(n => {
+          const payload = typeof n.payload === 'string' ? JSON.parse(n.payload || '{}') : (n.payload || {});
+          if (payload.kind !== 'azure_signin') return;
+          if (reportSubmissionId && payload.submission_id !== reportSubmissionId) return;
+          const who = payload.provider_username || n.sender_username;
+          if (who && !next[who]) next[who] = n.created_at || new Date().toISOString();
+        });
+        return next;
+      });
+    } catch (err) {
+      console.warn('[DEBUG] Failed to load Azure sign-ins:', err);
+    }
+  }, [token, reportSubmissionId]);
+
   // Manual refresh for the "Selected Data-Providers" panel - re-pulls
   // responses immediately instead of waiting for the background poll.
   const refreshProviderResponses = async () => {
@@ -335,6 +378,36 @@ export default function FederatedLearning() {
     return () => clearInterval(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, currentStep]);
+
+  // Once the FL session has been started, poll for providers' "signed in to
+  // Azure" notices so the owner sees them live without a manual refresh.
+  useEffect(() => {
+    if (!token || !distributeResult?.ok) return;
+    fetchAzureSignIns();
+    const h = setInterval(fetchAzureSignIns, 5000);
+    return () => clearInterval(h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, distributeResult?.ok]);
+
+  // Live progress for this owner's auto-provisioned VM (see
+  // runStartFlSession above) - independent of distributeResult so a page
+  // refresh mid-provisioning still picks the run back up.
+  useEffect(() => {
+    if (!user?.username) return undefined;
+    const unsub = subscribeToVmProvisioning(user.username, 'user', (data) => {
+      setVmProvisioning({ status: data.status || 'idle', events: data.events || [] });
+    });
+    return unsub;
+  }, [user?.username]);
+
+  const handleDownloadVmKey = async () => {
+    setVmKeyError(null);
+    try {
+      await downloadVmPrivateKey(sessionStorage.getItem('access_token') || token);
+    } catch (err) {
+      setVmKeyError(err.message);
+    }
+  };
 
   // Output owners: load the final model on mount and poll so it appears once the
   // FL server finishes writing the final round's checkpoint - no manual refresh.
@@ -531,6 +604,7 @@ export default function FederatedLearning() {
       const selectedPayload = notifiedProviders.map(p => ({ id: p.id, username: p.username, email: p.email }));
       const res = await notifyRoster(selectedPayload, willingPayload, formData.output_owner_id, reportSubmissionId, freshToken);
       setFinalRosterSent(true);
+      setFinalRoster(willingPayload);
       if (res?.contract) {
         setContract(res.contract);
         setContractError(null);
@@ -635,54 +709,67 @@ export default function FederatedLearning() {
     }
   };
 
-  // Owner-side: bring up the FL run for this submission - gov_layer creates the
-  // owner venv (+ server requirements) and launches flo_server.py on the owner, then
-  // provisions each provider's venv (+ client requirements) and launches
-  // flo_client.py on each provider. flo_session.py is launched in a later step.
-  const handleStartFlSession = async () => {
-    const id = reportSubmissionId || sessionStorage.getItem('last_report_submission_id');
-    if (!id) {
-      setDistributeResult({ ok: false, text: 'No submission found. Submit the request first.' });
-      return;
-    }
+  // Does the actual provisioning call once we have both tokens in hand -
+  // shared by the button handler and by the auto-resume-after-Azure-login
+  // effect below, so both paths render identical results.
+  const runStartFlSession = async (id, azureToken) => {
     const freshToken = sessionStorage.getItem('access_token') || token;
     setStartingSession(true);
     setDistributeResult(null);
     try {
-      const res = await fetch(`${BACKEND_URL}/p3dx/gov/start-fl-session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${freshToken}` },
-        body: JSON.stringify({ submission_id: id }),
-      });
-      const data = await res.json();
+      const data = await startFlSession(id, azureToken, finalRoster, freshToken);
       if (data.status === 'SUCCESS') {
-        const p = data.provision?.summary || { ok: 0, failed: 0, skipped: 0 };
-        const c = data.clients?.summary || { started: 0, failed: 0, skipped: 0 };
-        const provDetails = (data.provision?.results || []).map(
-          r => `- env ${r.username} (${r.ip || '?'}:${r.port || '?'}) - ${r.status}${r.reason ? ': ' + r.reason : ''}`
-        );
-        const clientDetails = (data.clients?.results || []).map(
-          r => `- client ${r.username} (${r.ip || '?'}:${r.port || '?'}) - ${r.status}${r.reason ? ': ' + r.reason : ''}`
-        );
-        const sess = data.session?.status === 'started'
-          ? `Session started (flo_session.py pid ${data.session.pid}, after ${Math.round((data.session.waited_ms ?? 0) / 1000)}s wait).`
-          : `Session: ${data.session?.detail || 'not started'}.`;
         setDistributeResult({
           ok: true,
-          text: `Owner ${data.owner?.url ?? ''} up - flo_server.py pid ${data.server?.pid ?? '?'}. Provider envs: ok ${p.ok}, failed ${p.failed}, skipped ${p.skipped}. Clients: started ${c.started}, failed ${c.failed}, skipped ${c.skipped}. ${sess}`,
-          details: [
-            ...(data.server?.log ? [`server log: ${data.server.log} @ ${data.owner?.url ?? 'owner'}`] : []),
-            ...provDetails,
-            ...clientDetails,
-            ...(data.session?.log ? [`session log: ${data.session.log}`] : []),
-          ],
+          text: `FL session started - ${data.notified} provider(s) notified to sign in with Azure.`,
         });
+        // Kick off this owner's own VM (backend device-code Azure login +
+        // Terraform, see vmAutoProvision.service.js) now that the session has
+        // actually started - fire-and-forget, progress arrives over the
+        // vm-provisioning SSE subscription below.
+        const vmName = formData.vm_name || user?.username;
+        if (vmName) {
+          triggerAutoProvision('user', freshToken, vmName).catch((err) => {
+            setVmProvisioning(prev => ({
+              status: 'error',
+              events: [...prev.events, { step: 'Starting', status: 'error', message: err.message }],
+            }));
+          });
+        }
       } else {
         setDistributeResult({ ok: false, text: data.message || data.error || 'Failed to start FL session.' });
       }
     } catch (e) {
       setDistributeResult({ ok: false, text: `Start FL session failed: ${e.message}` });
     } finally {
+      setStartingSession(false);
+    }
+  };
+
+  // Owner-side: bring up the FL run for this submission. Requires an Azure
+  // sign-in first (a popup window - the resulting token lets gov_layer's
+  // Terraform step create the VM(s) under this user's Azure subscription).
+  const handleStartFlSession = async () => {
+    // Visible immediately, synchronously on click - if this text never shows
+    // up, the click isn't reaching this handler at all (stale bundle, an
+    // overlapping element eating the click, etc), which narrows the problem
+    // down to something outside this function entirely.
+    setStartingSession(true);
+    setDistributeResult({ ok: true, text: 'Checking Azure sign-in...' });
+
+    try {
+      const id = reportSubmissionId || sessionStorage.getItem('last_report_submission_id');
+      if (!id) {
+        setDistributeResult({ ok: false, text: 'No submission found. Submit the request first.' });
+        setStartingSession(false);
+        return;
+      }
+
+      const azureToken = await getAzureAccessToken();
+      await runStartFlSession(id, azureToken);
+    } catch (e) {
+      console.error('[Azure] Start FL Session failed:', e);
+      setDistributeResult({ ok: false, text: `Azure sign-in failed: ${e?.message || String(e)}` });
       setStartingSession(false);
     }
   };
@@ -1264,6 +1351,54 @@ export default function FederatedLearning() {
                   )}
                 </div>
               )}
+              {Object.keys(azureSignIns).length > 0 && (
+                <div className="fl-result-banner fl-result-banner--ok" style={{ marginTop: '10px' }}>
+                  <strong>Signed in to Azure:</strong>
+                  <ul>
+                    {Object.entries(azureSignIns).map(([username, at]) => (
+                      <li key={username}>{username} — {new Date(at).toLocaleTimeString()}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {vmProvisioning.events.length > 0 && (
+                <div style={{ marginTop: '10px' }}>
+                  <div style={{ fontSize: '13px', marginBottom: '6px' }}>
+                    Provisioning your VM — status: <strong>{vmProvisioning.status}</strong>
+                  </div>
+                  {(() => {
+                    const deviceLoginEvent = vmProvisioning.events.find(
+                      (e) => e.step === 'Azure device login' && e.status === 'running'
+                    );
+                    return deviceLoginEvent && (
+                      <div className="fl-result-banner fl-result-banner--ok" style={{ marginBottom: '8px' }}>
+                        {deviceLoginEvent.message}
+                      </div>
+                    );
+                  })()}
+                  <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: '13px' }}>
+                    {vmProvisioning.events.map((e, i) => (
+                      <li key={i} style={{ padding: '3px 0' }}>
+                        {e.status === 'error' ? '❌' : e.status === 'running' ? '⏳' : '✅'} <strong>{e.step}</strong>
+                        {e.command && <code style={{ marginLeft: '6px', opacity: 0.8 }}>{e.command}</code>}
+                        {e.message && <span style={{ marginLeft: '6px' }}>— {e.message}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                  {vmProvisioning.status === 'done' && (
+                    <div style={{ marginTop: '10px' }}>
+                      <button className="btn btn-secondary" type="button" style={{ width: 'auto' }} onClick={handleDownloadVmKey}>
+                        Download SSH Key
+                      </button>
+                      {vmKeyError && (
+                        <div className="fl-result-banner fl-result-banner--error" style={{ marginTop: '8px' }}>
+                          {vmKeyError}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1338,6 +1473,13 @@ export default function FederatedLearning() {
               <div className="form-group">
                 <label>Port</label>
                 <input type="number" placeholder="e.g. 8080" min="1" max="65535" value={formData.port} onChange={(e) => setFormData({...formData, port: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label>VM Name</label>
+                <input placeholder="e.g. my-fl-vm" value={formData.vm_name} onChange={(e) => setFormData({...formData, vm_name: e.target.value})} />
+                <div style={{ fontSize: '12px', color: 'var(--text-light)', marginTop: '4px' }}>
+                  Names the VM auto-created for you when you start the FL session.
+                </div>
               </div>
               <div className="form-group form-group--wide" style={{ marginTop: '4px' }}>
                 <button type="submit" className="btn btn-primary" style={{ width: 'auto' }}>

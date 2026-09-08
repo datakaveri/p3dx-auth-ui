@@ -159,6 +159,46 @@ export async function notifyRoster(selectedProviders, willingProviders, outputOw
   return data;
 }
 
+// Output owner: kick off the FL session for a submission - notifies every
+// provider on the finalized roster to sign in with their own Azure account.
+export async function startFlSession(submissionId, azureToken, participatingProviders, token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/gov/start-fl-session`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      submission_id: submissionId,
+      azure_token: azureToken,
+      participating_providers: participatingProviders,
+    }),
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to start FL session");
+  }
+  return data;
+}
+
+// Data provider: tell the output owner that Azure sign-in for this FL
+// session is done, so their dashboard can show it live.
+export async function notifyAzureSignIn(ownerUsername, submissionId, token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/gov/azure-signin`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ owner_username: ownerUsername, submission_id: submissionId }),
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to notify Azure sign-in");
+  }
+  return data;
+}
+
 // Output owner: read back the stored FL session contract (draft before Final
 // Roster, finalized after) for a submission id, so it can be viewed in the UI.
 export async function getSessionContract(sessionId, token) {

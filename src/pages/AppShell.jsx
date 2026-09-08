@@ -2,6 +2,25 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { getMe, refreshAccessToken } from "../api/auth";
 
+// Access tokens are short-lived (Keycloak default is a few minutes). Flows
+// like FL/VM provisioning run far longer than that and poll on fixed
+// intervals with whatever token they captured, so without a proactive
+// refresh those polls start failing with "exp" JWT errors partway through
+// and the UI silently stops updating. Decode the token's own exp claim
+// (no signature check needed - the browser can't forge a token the backend
+// will accept) so the refresh timer tracks whatever lifespan Keycloak issued.
+function getTokenExpiryMs(token) {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof payload.exp === "number" ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+const REFRESH_BUFFER_MS = 30_000; // refresh 30s before expiry
+const MIN_REFRESH_DELAY_MS = 5_000; // never hammer the refresh endpoint
+
 export default function AppShell() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -65,6 +84,24 @@ export default function AppShell() {
     }
     return res?.user ?? null;
   }, []);
+
+  // Keep the access token alive in the background for as long as the app is
+  // open, so long-running polls (FL/VM provisioning) never run on an expired
+  // token. Re-runs whenever `token` changes (i.e. right after each refresh),
+  // rescheduling itself against the new token's own expiry.
+  useEffect(() => {
+    if (!token) return undefined;
+
+    const expiryMs = getTokenExpiryMs(token);
+    if (!expiryMs) return undefined;
+
+    const delay = Math.max(expiryMs - Date.now() - REFRESH_BUFFER_MS, MIN_REFRESH_DELAY_MS);
+    const timer = setTimeout(() => {
+      refreshUser().catch((err) => console.warn("Background token refresh failed:", err));
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [token, refreshUser]);
 
   // Non-admins land on the role-request page first after login — a mandatory
   // first stop before the services list. There is no per-service gating
