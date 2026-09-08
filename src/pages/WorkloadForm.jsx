@@ -106,7 +106,8 @@ export default function WorkloadForm() {
   // Each tab keeps its own independent search term.
   const [datasetSearchQuery, setDatasetSearchQuery] = useState("");
   const [infraSearchQuery, setInfraSearchQuery] = useState("");
-  const [selectedDatasetId, setSelectedDatasetId] = useState(null);
+  // Any number >= 1 of datasets may be selected (was a single scalar id).
+  const [selectedDatasetIds, setSelectedDatasetIds] = useState([]);
 
   // Real, registered datasets (from APD via aaa's /available-datasets) — each
   // a {id, name} pair (id is the real item_id a by-item policy lookup needs;
@@ -138,12 +139,14 @@ export default function WorkloadForm() {
 
   // Infrastructure Catalogue (InfraCat) — registered infra-provider policies,
   // SMPC only. Mirrors the dataset-loading effect above.
-  const [selectedInfraId, setSelectedInfraId] = useState(null);
+  // Exactly 2 infra providers are required (SMPC): a compute job now always
+  // runs across two selected infrastructures, no more, no fewer.
+  const [selectedInfraIds, setSelectedInfraIds] = useState([]);
   const [infraList, setInfraList] = useState([]);
   const [infraLoading, setInfraLoading] = useState(true);
   const [infraError, setInfraError] = useState(null);
   // Which infra rows have their "expand for details" panel open — independent
-  // of selectedInfraId, so a user can compare several without picking one.
+  // of selectedInfraIds, so a user can compare several without picking them.
   const [expandedInfraIds, setExpandedInfraIds] = useState(new Set());
   // Lazily-fetched, per-item detail cache: { [item_id]: { loading?, data?, error? } }.
   const [infraDetailsCache, setInfraDetailsCache] = useState({});
@@ -199,17 +202,28 @@ export default function WorkloadForm() {
     });
   }, [infraList, infraSearchQuery]);
 
+  // Toggle (add/remove), mirroring FederatedLearning.jsx's toggleProvider —
+  // any number of datasets may be selected.
   const handleDatasetSelect = (id) => {
-    setSelectedDatasetId(prev => prev === id ? null : id);
+    setSelectedDatasetIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
   };
 
-  const selectedDataset = useMemo(
-    () => datasetList.find(d => d.id === selectedDatasetId) || null,
-    [datasetList, selectedDatasetId]
+  const selectedDatasets = useMemo(
+    () => datasetList.filter(d => selectedDatasetIds.includes(d.id)),
+    [datasetList, selectedDatasetIds]
   );
 
+  // Same toggle shape as datasets, but capped at exactly 2 — a 3rd click
+  // while 2 are already selected is a no-op (the select button also
+  // disables itself once the cap is reached; see the infra list below).
   const handleInfraSelect = (itemId) => {
-    setSelectedInfraId(prev => prev === itemId ? null : itemId);
+    setSelectedInfraIds(prev => {
+      if (prev.includes(itemId)) return prev.filter(x => x !== itemId);
+      if (prev.length >= 2) return prev;
+      return [...prev, itemId];
+    });
   };
 
   const toggleInfraDetails = (itemId) => {
@@ -230,14 +244,14 @@ export default function WorkloadForm() {
       });
   };
 
-  const selectedInfra = useMemo(
-    () => infraList.find(i => i.item_id === selectedInfraId) || null,
-    [infraList, selectedInfraId]
+  const selectedInfras = useMemo(
+    () => infraList.filter(i => selectedInfraIds.includes(i.item_id)),
+    [infraList, selectedInfraIds]
   );
 
   const handleGenerateContract = async () => {
-    if (!selectedDatasetId || !technique) return;
-    if (isSMPCTechnique && !selectedInfraId) return;
+    if (selectedDatasetIds.length === 0 || !technique) return;
+    if (isSMPCTechnique && selectedInfraIds.length !== 2) return;
     setError(null);
     setGeneratedContract(null);
     setTeeSession(null);
@@ -246,16 +260,18 @@ export default function WorkloadForm() {
     try {
       if (!token) throw new Error("MISSING_AUTH_TOKEN");
       const res = await previewContract(token, {
-        datasetId: selectedDatasetId,
-        datasetName: selectedDataset?.name,
+        datasets: selectedDatasets.map(d => ({ datasetId: d.id, datasetName: d.name })),
         technique,
-        infraId: selectedInfraId,
+        infraIds: selectedInfraIds,
       });
       const contract = res?.contract || null;
       setGeneratedContract(contract);
       // Policies set on the "Set Policy" page can carry a data URL for the
       // dataset — prefill the run form with it so the consumer doesn't have
-      // to re-type a URL the provider already declared.
+      // to re-type a URL the provider already declared. With multiple
+      // datasets selected there's no single "the" data URL for the run
+      // form below, so take the first one (same as the first selected
+      // dataset feeding startTeeSession further down).
       setDatasetUrl(contract?.parties?.data_providers?.[0]?.data_url || "");
     } catch (err) {
       setError(err.message || "Contract generation failed");
@@ -271,8 +287,10 @@ export default function WorkloadForm() {
     try {
       const res = await startTeeSession(token, {
         datasetUrl,
-        datasetId: selectedDatasetId,
-        datasetName: selectedDataset?.name,
+        // TEE session run is still single-dataset — use the first selected
+        // one, matching datasetUrl's own "first dataset" fallback above.
+        datasetId: selectedDatasetIds[0],
+        datasetName: selectedDatasets[0]?.name,
       });
       setTeeSession({ sessionId: res.sessionId, status: res.status || "provisioning", error: null });
     } catch (err) {
@@ -326,10 +344,12 @@ export default function WorkloadForm() {
     return () => clearInterval(interval);
   }, [teeSession?.sessionId, teeSession?.status, token]);
 
-  const canRun = selectedDatasetId && technique && (!isSMPCTechnique || selectedInfraId);
+  const canRun = selectedDatasetIds.length > 0 && technique && (!isSMPCTechnique || selectedInfraIds.length === 2);
   const missingItems = [];
-  if (!selectedDatasetId) missingItems.push("dataset");
-  if (isSMPCTechnique && !selectedInfraId) missingItems.push("infrastructure");
+  if (selectedDatasetIds.length === 0) missingItems.push("at least one dataset");
+  if (isSMPCTechnique && selectedInfraIds.length !== 2) {
+    missingItems.push(`exactly 2 infrastructure providers (${selectedInfraIds.length} selected)`);
+  }
   if (!technique) missingItems.push("service (go back to Services and start from SMPC or Anonymization)");
 
   return (
@@ -416,7 +436,11 @@ export default function WorkloadForm() {
               ) : filteredInfraList.length > 0 ? (
                 <div className="cat-simple-list">
                   {filteredInfraList.map(infra => {
-                    const isSelected = selectedInfraId === infra.item_id;
+                    const isSelected = selectedInfraIds.includes(infra.item_id);
+                    // Once 2 are selected, every other row's select button
+                    // disables — makes the exactly-2 cap discoverable rather
+                    // than a silent no-op on a 3rd click.
+                    const capReached = selectedInfraIds.length >= 2 && !isSelected;
                     const isExpanded = expandedInfraIds.has(infra.item_id);
                     const detail = infraDetailsCache[infra.item_id];
                     return (
@@ -426,6 +450,8 @@ export default function WorkloadForm() {
                             type="button"
                             className="cat-infra-item__select"
                             onClick={() => handleInfraSelect(infra.item_id)}
+                            disabled={capReached}
+                            title={capReached ? "2 infrastructure providers already selected — deselect one first" : undefined}
                           >
                             <HardDrive size={16} />
                             <span className="cat-simple-item__name">
@@ -489,12 +515,12 @@ export default function WorkloadForm() {
                     <button
                       key={d.id}
                       type="button"
-                      className={`cat-simple-item${selectedDatasetId === d.id ? " cat-simple-item--selected" : ""}`}
+                      className={`cat-simple-item${selectedDatasetIds.includes(d.id) ? " cat-simple-item--selected" : ""}`}
                       onClick={() => handleDatasetSelect(d.id)}
                     >
                       <Database size={16} />
                       <span className="cat-simple-item__name">{d.name}</span>
-                      {selectedDatasetId === d.id && <CheckCircle2 size={15} />}
+                      {selectedDatasetIds.includes(d.id) && <CheckCircle2 size={15} />}
                     </button>
                   ))}
                 </div>
@@ -537,43 +563,49 @@ export default function WorkloadForm() {
           </div>
         </div>
 
-        {/* Dataset slot */}
-        <div className={`cat-slot${selectedDatasetId ? " cat-slot--filled" : ""}`}>
+        {/* Dataset slot(s) — any number >= 1 */}
+        <div className={`cat-slot${selectedDatasetIds.length ? " cat-slot--filled" : ""}`}>
           <div className="cat-slot__icon">
             <Database size={16} />
           </div>
           <div className="cat-slot__info">
-            <div className="cat-slot__label">Dataset</div>
-            {selectedDatasetId
-              ? <div className="cat-slot__value">{selectedDataset?.name || selectedDatasetId}</div>
-              : <div className="cat-slot__placeholder">No dataset selected</div>
-            }
+            <div className="cat-slot__label">Dataset{selectedDatasetIds.length > 1 ? "s" : ""}</div>
+            {selectedDatasets.length ? (
+              selectedDatasets.map(d => (
+                <div key={d.id} className="cat-slot__value" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <span>{d.name || d.id}</span>
+                  <button className="cat-icon-btn cat-slot__clear" onClick={() => handleDatasetSelect(d.id)} title="Clear">
+                    <X size={13} />
+                  </button>
+                </div>
+              ))
+            ) : (
+              <div className="cat-slot__placeholder">No dataset selected</div>
+            )}
           </div>
-          {selectedDatasetId && (
-            <button className="cat-icon-btn cat-slot__clear" onClick={() => setSelectedDatasetId(null)} title="Clear">
-              <X size={13} />
-            </button>
-          )}
         </div>
 
-        {/* Infrastructure slot — SMPC only */}
+        {/* Infrastructure slot(s) — SMPC only, exactly 2 required */}
         {isSMPCTechnique && (
-          <div className={`cat-slot${selectedInfraId ? " cat-slot--filled" : ""}`}>
+          <div className={`cat-slot${selectedInfraIds.length ? " cat-slot--filled" : ""}`}>
             <div className="cat-slot__icon">
               <HardDrive size={16} />
             </div>
             <div className="cat-slot__info">
-              <div className="cat-slot__label">Infrastructure</div>
-              {selectedInfra
-                ? <div className="cat-slot__value">{selectedInfra.name || selectedInfra.item_id}</div>
-                : <div className="cat-slot__placeholder">No infrastructure selected</div>
-              }
+              <div className="cat-slot__label">Infrastructure ({selectedInfraIds.length}/2)</div>
+              {selectedInfras.length ? (
+                selectedInfras.map(infra => (
+                  <div key={infra.item_id} className="cat-slot__value" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <span>{infra.name || infra.item_id}</span>
+                    <button className="cat-icon-btn cat-slot__clear" onClick={() => handleInfraSelect(infra.item_id)} title="Clear">
+                      <X size={13} />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="cat-slot__placeholder">No infrastructure selected</div>
+              )}
             </div>
-            {selectedInfraId && (
-              <button className="cat-icon-btn cat-slot__clear" onClick={() => setSelectedInfraId(null)} title="Clear">
-                <X size={13} />
-              </button>
-            )}
           </div>
         )}
 

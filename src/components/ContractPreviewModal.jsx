@@ -95,7 +95,6 @@ export default function ContractPreviewModal({ open, contract, onClose }) {
             <div className="grid">
               <Field label="Technique" value={<span className="pill">{contract.technique}</span>} />
               <Field label="Compute Choice" value={contract.compute_choice} />
-              <Field label="Execution Platform" value={contract.execution_platform} />
               <Field label="Project ID" value={contract.project_id} mono />
               <Field label="Contract ID" value={contract.contract_id} mono />
               <Field label="Version" value={contract.version} />
