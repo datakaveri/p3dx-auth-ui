@@ -83,15 +83,20 @@ function IconLock() {
   return <svg {...ICON_PROPS}><rect x="5" y="9" width="10" height="8" rx="1.5" /><path d="M7 9V6.5a3 3 0 0 1 6 0V9" /></svg>;
 }
 
+// What confidential-computing technology (if any) a chosen instance size
+// carries. sgxEnabled and confidentialComputing never disagree in the
+// dataset (an sgxEnabled size always also carries confidentialComputing.
+// technology "Intel SGX"), so reading sgxEnabled first is just the more
+// direct check. Module-scoped (not a deriveExecutionEnvironment-local
+// helper) since confidentialFlags (below, near sgxNodeCount) also needs it.
+const techOf = s => (s.sgxEnabled ? "Intel SGX" : s.confidentialComputing?.technology || null);
+
 // Derives "Execution Environment" from whichever sizes are actually chosen,
 // instead of a manual dropdown that could disagree with reality (see
 // Infra_Form_Changes.md item #12). `entries` is one { label, size } per
 // relevant slot — the VM's single size, or every node pool's — where `size`
 // is whatever getSizeByName returns (undefined until a class+size is
-// chosen). sgxEnabled and confidentialComputing never disagree in the
-// dataset (an sgxEnabled size always also carries confidentialComputing.
-// technology "Intel SGX"), so reading sgxEnabled first is just the more
-// direct check.
+// chosen).
 //
 // A plain (non-confidential) pool alongside a confidential one does NOT
 // make this "Mixed" — e.g. one SGX pool plus two plain pools still reads as
@@ -104,7 +109,6 @@ function deriveExecutionEnvironment(entries) {
     return { state: "empty", label: "Select sizes below" };
   }
 
-  const techOf = s => (s.sgxEnabled ? "Intel SGX" : s.confidentialComputing?.technology || null);
   const withTech = chosen.map(e => ({ ...e, tech: techOf(e.size) }));
   const confidential = withTech.filter(e => e.tech);
   const distinctTechs = [...new Set(confidential.map(e => e.tech))];
@@ -387,6 +391,28 @@ export default function InfraPolicyForm() {
     }, 0);
   }, [form.computeType, form.platformProvider, form.vmInstanceClass, form.vmInstanceSize, form.nodeCount, form.nodePools]);
 
+  // Confidential-compute flags for the contract, derived the same way as
+  // sgxNodeCount/executionEnv above — OR'd across every chosen size (all
+  // node pools, or the VM's single size). Stored flat on the submitted
+  // policy, mirroring sgx_node_count's own precedent: an aggregate derived
+  // once from the chosen sizes, never re-derived downstream. The underlying
+  // technology strings themselves are never submitted — techOf() is used
+  // only here (and elsewhere in this file purely for on-screen display) to
+  // compute these 5 booleans.
+  const confidentialFlags = useMemo(() => {
+    const sizes = form.computeType === "vm"
+      ? [getSizeByName(form.platformProvider, form.vmInstanceClass, form.vmInstanceSize)]
+      : form.nodePools.map(p => getSizeByName(form.platformProvider, p.instanceClass, p.instanceSize));
+    const techs = sizes.filter(Boolean).map(techOf);
+    return {
+      sgxEnabled: techs.includes("Intel SGX"),
+      tdxEnabled: techs.some(t => t === "Intel TDX" || t === "Intel TDX (Preview)"),
+      sevSnpEnabled: techs.some(t => t === "AMD SEV-SNP" || t === "AMD SEV / AMD SEV-SNP"),
+      sevEnabled: techs.some(t => t === "AMD SEV" || t === "AMD SEV / AMD SEV-SNP"),
+      nitroEnclaveEnabled: techs.includes("AWS Nitro Enclaves"),
+    };
+  }, [form.computeType, form.platformProvider, form.vmInstanceClass, form.vmInstanceSize, form.nodePools]);
+
   const onSubmit = async e => {
     e.preventDefault();
     setError(null);
@@ -429,6 +455,15 @@ export default function InfraPolicyForm() {
             // Derived, not user-picked — see sgxNodeCount above.
             sgx_node_count: sgxNodeCount,
             max_concurrent_jobs: Number(form.maxConcurrentJobs) || 0,
+            // Confidential-compute flags for the contract (replaces
+            // execution_platform downstream) — see confidentialFlags above.
+            // Flat booleans, not a raw technology string: OR'd across every
+            // node pool/VM instance this infra actually has.
+            sgx_enabled: confidentialFlags.sgxEnabled,
+            tdx_enabled: confidentialFlags.tdxEnabled,
+            sev_snp_enabled: confidentialFlags.sevSnpEnabled,
+            sev_enabled: confidentialFlags.sevEnabled,
+            nitro_enclave_enabled: confidentialFlags.nitroEnclaveEnabled,
             // Non-breaking addition alongside the flat totals above (which
             // remain what contractgen.go actually reads) — provenance for
             // the class/size picker, e.g. for a future InfraCat breakdown.
