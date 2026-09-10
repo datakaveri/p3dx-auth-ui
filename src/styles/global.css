@@ -851,59 +851,33 @@ a:hover {
    to InfraPolicyForm rather than applied everywhere, so this doesn't touch
    those pages' unrelated layouts. */
 .form-section {
-  position: relative;
-  background: var(--bg-white);
-  /* 20% darker than --border-color/--shadow-sm (alpha *1.2 on each layer)
-     so panels read as more separate — set locally rather than changing
-     those shared tokens, which are also used by unrelated pages/elements
-     (.card, inputs, buttons, ...). */
-  border: 1px solid rgba(209, 213, 219, 0.72);
-  border-radius: var(--radius-sm);
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.084), 0 1px 2px -1px rgba(0, 0, 0, 0.048);
-  padding: 20px 22px 22px;
-  overflow: hidden;
-}
-
-.form-section::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, #7c5cff, #22d3ee, #4ade80);
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
 }
 
 .form-section + .form-section {
-  margin-top: 14px;
+  margin-top: 30px;
 }
 
 .form-section-head {
   display: flex;
   align-items: center;
   gap: 11px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
+/* Icon badges dropped for a plain, flat form look — kept in markup (each
+   form-section still renders a form-section-icon) so this can be turned
+   back on with one rule if that changes, rather than re-adding the icons
+   to every page. */
 .form-section-icon {
-  flex: none;
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, rgba(124, 92, 255, 0.14), rgba(74, 222, 128, 0.1));
-  color: var(--primary-dark);
-}
-
-.form-section-icon svg {
-  width: 17px;
-  height: 17px;
+  display: none;
 }
 
 .form-section-titles h4 {
-  font-size: 14.5px;
+  font-size: 15px;
   font-weight: 700;
   margin: 0;
   color: var(--text-dark);
