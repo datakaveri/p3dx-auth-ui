@@ -852,28 +852,6 @@ export default function FederatedLearningDashboard() {
         vmName={dpVmName}
         onVmNameChange={setDpVmName}
       />
-
-      <div style={{ marginBottom: "18px" }}>
-        <h3 className="section-title">Actions</h3>
-        <div className="action-grid">
-          {hasDataProvider ? (
-            <button
-              className="action-card"
-              type="button"
-              onClick={() =>
-                navigate("/app/services/policies", {
-                  state: { returnTo: location.pathname },
-                })
-              }
-            >
-              <div className="action-title">Set Policies</div>
-              <div className="action-description">
-                Set access policies for datasets and applications (dummy flow).
-              </div>
-            </button>
-          ) : null}
-        </div>
-      </div>
     </div>
   );
 }

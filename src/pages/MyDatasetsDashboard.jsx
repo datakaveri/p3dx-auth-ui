@@ -155,7 +155,9 @@ export default function MyDatasetsDashboard() {
                     <td>{item.item_id}</td>
                     <td>{item.name}</td>
                     <td>{item.application}</td>
-                    <td>{item.access_level}</td>
+                    <td>
+                      <span className="table-badge table-badge--neutral">{item.access_level}</span>
+                    </td>
                     <td>{formatDate(item.issued_at)}</td>
                     <td>
                       <div style={{ display: "flex", gap: "8px" }}>

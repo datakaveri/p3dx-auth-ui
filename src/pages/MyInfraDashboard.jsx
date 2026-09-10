@@ -155,7 +155,11 @@ export default function MyInfraDashboard() {
                     <td>{item.item_id}</td>
                     <td>{item.name}</td>
                     <td>{item.region}</td>
-                    <td>{PLATFORM_LABELS[item.provider] || item.provider}</td>
+                    <td>
+                      <span className={`table-badge table-badge--${item.provider || "neutral"}`}>
+                        {PLATFORM_LABELS[item.provider] || item.provider}
+                      </span>
+                    </td>
                     <td>{formatDate(item.issued_at)}</td>
                     <td>
                       <div style={{ display: "flex", gap: "8px" }}>

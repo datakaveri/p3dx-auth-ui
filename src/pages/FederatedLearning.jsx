@@ -76,6 +76,54 @@ function initials(name) {
   return (name || '').slice(0, 2).toUpperCase();
 }
 
+// Same section-header icon treatment as PolicyForm.jsx/InfraPolicyForm.jsx
+// (plain inline SVG, one shared stroke style, no icon library) — applied to
+// the two forms below so they read as the same product as the dataset/infra
+// policy forms, instead of one flat field grid. Duplicated locally since
+// neither file exports these and no shared utils module exists in src.
+const ICON_PROPS = { viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: '1.6', strokeLinecap: 'round', strokeLinejoin: 'round' };
+function IconTag() {
+  return <svg {...ICON_PROPS}><path d="M4 4h6l7 7-6 6-7-7V4Z" /><circle cx="7.4" cy="7.4" r="1.1" fill="currentColor" stroke="none" /></svg>;
+}
+function IconDatabase() {
+  return (
+    <svg {...ICON_PROPS}>
+      <ellipse cx="10" cy="5" rx="6" ry="2.2" />
+      <path d="M4 5v10c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2V5" />
+      <path d="M4 10c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2" />
+    </svg>
+  );
+}
+function IconServer() {
+  return (
+    <svg {...ICON_PROPS}>
+      <rect x="3" y="3.5" width="14" height="3.6" rx="1" /><circle cx="6" cy="5.3" r=".5" fill="currentColor" stroke="none" />
+      <rect x="3" y="8.2" width="14" height="3.6" rx="1" /><circle cx="6" cy="10" r=".5" fill="currentColor" stroke="none" />
+      <rect x="3" y="12.9" width="14" height="3.6" rx="1" /><circle cx="6" cy="14.7" r=".5" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+function IconSliders() {
+  return (
+    <svg {...ICON_PROPS}>
+      <line x1="4" y1="17" x2="4" y2="11" /><line x1="4" y1="7" x2="4" y2="3" />
+      <line x1="10" y1="17" x2="10" y2="9" /><line x1="10" y1="5" x2="10" y2="3" />
+      <line x1="16" y1="17" x2="16" y2="13" /><line x1="16" y1="9" x2="16" y2="3" />
+    </svg>
+  );
+}
+function IconCpu() {
+  return (
+    <svg {...ICON_PROPS}>
+      <rect x="6" y="6" width="8" height="8" rx="1" />
+      <path d="M8 3v3M12 3v3M8 14v3M12 14v3M3 8h3M3 12h3M14 8h3M14 12h3" />
+    </svg>
+  );
+}
+function IconPlug() {
+  return <svg {...ICON_PROPS}><path d="M8 12l4-4" /><path d="M7 9 5.6 7.6a2.5 2.5 0 1 1 3.5-3.5L10.4 5.4" /><path d="M12 11l1.4 1.4a2.5 2.5 0 1 1-3.5 3.5L8.6 14.6" /></svg>;
+}
+
 export default function FederatedLearning() {
   const { user, token } = useOutletContext();
 
@@ -923,52 +971,88 @@ export default function FederatedLearning() {
                 <span className="fl-section-sub">Register your dataset so output owners can find and invite you</span>
               </div>
             </div>
-            <form onSubmit={handleDataProviderSubmit} className="fl-form-grid">
-              <div className="form-group">
-                <label>Form ID</label>
-                <input value={dpFormData.form_id} onChange={(e) => setDpFormData({...dpFormData, form_id: e.target.value})} />
+            <form onSubmit={handleDataProviderSubmit}>
+              <div className="form-section">
+                <div className="form-section-head">
+                  <div className="form-section-icon"><IconDatabase /></div>
+                  <div className="form-section-titles">
+                    <h4>Dataset</h4>
+                    <span>Identity for this registration</span>
+                  </div>
+                </div>
+                <div className="fl-form-grid">
+                  <div className="form-group">
+                    <label>Form ID</label>
+                    <input value={dpFormData.form_id} onChange={(e) => setDpFormData({...dpFormData, form_id: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label>Data Owner ID</label>
+                    <input value={dpFormData.data_owner_id} onChange={(e) => setDpFormData({...dpFormData, data_owner_id: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label>Dataset Name</label>
+                    <input value={dpFormData.dataset_name} onChange={(e) => setDpFormData({...dpFormData, dataset_name: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label>Dataset Location URL</label>
+                    <input placeholder="e.g. https://storage.example.com/datasets/my-dataset" value={dpFormData.dataset_location_url} onChange={(e) => setDpFormData({...dpFormData, dataset_location_url: e.target.value})} />
+                  </div>
+                </div>
               </div>
-              <div className="form-group">
-                <label>Data Owner ID</label>
-                <input value={dpFormData.data_owner_id} onChange={(e) => setDpFormData({...dpFormData, data_owner_id: e.target.value})} />
+
+              <div className="form-section">
+                <div className="form-section-head">
+                  <div className="form-section-icon"><IconServer /></div>
+                  <div className="form-section-titles">
+                    <h4>Resources</h4>
+                    <span>Capacity available for training</span>
+                  </div>
+                </div>
+                <div className="fl-form-grid">
+                  <div className="form-group">
+                    <label>RAM (MB)</label>
+                    <input type="number" value={dpFormData.RAM} onChange={(e) => setDpFormData({...dpFormData, RAM: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label>RAM Usage (MB)</label>
+                    <input type="number" value={dpFormData.ram_usage} onChange={(e) => setDpFormData({...dpFormData, ram_usage: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label>Disk Space (MB)</label>
+                    <input type="number" value={dpFormData.memory_mb} onChange={(e) => setDpFormData({...dpFormData, memory_mb: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label>Data Size (bytes)</label>
+                    <input type="number" value={dpFormData.data_size_bytes} onChange={(e) => setDpFormData({...dpFormData, data_size_bytes: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label>Data Resource ID</label>
+                    <input value={dpFormData.data_resource_id} onChange={(e) => setDpFormData({...dpFormData, data_resource_id: e.target.value})} />
+                  </div>
+                </div>
               </div>
-              <div className="form-group">
-                <label>Dataset Name</label>
-                <input value={dpFormData.dataset_name} onChange={(e) => setDpFormData({...dpFormData, dataset_name: e.target.value})} />
+
+              <div className="form-section">
+                <div className="form-section-head">
+                  <div className="form-section-icon"><IconPlug /></div>
+                  <div className="form-section-titles">
+                    <h4>Network</h4>
+                    <span>Where your client receives training config</span>
+                  </div>
+                </div>
+                <div className="fl-form-grid">
+                  <div className="form-group">
+                    <label>IP Address</label>
+                    <input placeholder="e.g. 192.168.1.10" value={dpFormData.ip_address} onChange={(e) => setDpFormData({...dpFormData, ip_address: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label>Port</label>
+                    <input type="number" placeholder="e.g. 8080" min="1" max="65535" value={dpFormData.port} onChange={(e) => setDpFormData({...dpFormData, port: e.target.value})} />
+                  </div>
+                </div>
               </div>
-              <div className="form-group">
-                <label>Dataset Location URL</label>
-                <input placeholder="e.g. https://storage.example.com/datasets/my-dataset" value={dpFormData.dataset_location_url} onChange={(e) => setDpFormData({...dpFormData, dataset_location_url: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>RAM (MB)</label>
-                <input type="number" value={dpFormData.RAM} onChange={(e) => setDpFormData({...dpFormData, RAM: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>RAM Usage (MB)</label>
-                <input type="number" value={dpFormData.ram_usage} onChange={(e) => setDpFormData({...dpFormData, ram_usage: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>Disk Space (MB)</label>
-                <input type="number" value={dpFormData.memory_mb} onChange={(e) => setDpFormData({...dpFormData, memory_mb: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>Data Size (bytes)</label>
-                <input type="number" value={dpFormData.data_size_bytes} onChange={(e) => setDpFormData({...dpFormData, data_size_bytes: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>Data Resource ID</label>
-                <input value={dpFormData.data_resource_id} onChange={(e) => setDpFormData({...dpFormData, data_resource_id: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>IP Address</label>
-                <input placeholder="e.g. 192.168.1.10" value={dpFormData.ip_address} onChange={(e) => setDpFormData({...dpFormData, ip_address: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>Port</label>
-                <input type="number" placeholder="e.g. 8080" min="1" max="65535" value={dpFormData.port} onChange={(e) => setDpFormData({...dpFormData, port: e.target.value})} />
-              </div>
-              <div className="form-group form-group--wide" style={{ marginTop: '4px' }}>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
                 <button type="submit" className="btn btn-primary" style={{ width: 'auto' }}>Submit Data Provider Form</button>
               </div>
             </form>
@@ -1309,71 +1393,119 @@ export default function FederatedLearning() {
               </div>
             </div>
 
-            <form onSubmit={handleFormSubmit} className="fl-form-grid">
-              <div className="form-group">
-                <label>Form ID</label>
-                <input value={formData.form_id} onChange={(e) => setFormData({...formData, form_id: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>Output Owner ID</label>
-                <input value={formData.output_owner_id} onChange={(e) => setFormData({...formData, output_owner_id: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>Number of Server Rounds</label>
-                <input type="number" value={formData.num_server_rounds} onChange={(e) => setFormData({...formData, num_server_rounds: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>Fraction Evaluate</label>
-                <input type="number" step="0.1" value={formData.fraction_evaluate} onChange={(e) => setFormData({...formData, fraction_evaluate: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>Local Epochs</label>
-                <input type="number" value={formData.local_epochs} onChange={(e) => setFormData({...formData, local_epochs: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>Learning Rate</label>
-                <input type="number" step="0.001" value={formData.learning_rate} onChange={(e) => setFormData({...formData, learning_rate: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>Batch Size</label>
-                <input type="number" value={formData.batch_size} onChange={(e) => setFormData({...formData, batch_size: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>RAM Usage (MB)</label>
-                <input type="number" value={formData.ram_usage} onChange={(e) => setFormData({...formData, ram_usage: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>Model</label>
-                <input value={formData.model} onChange={(e) => setFormData({...formData, model: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>Framework</label>
-                <input value={formData.framework} onChange={(e) => setFormData({...formData, framework: e.target.value})} />
-              </div>
-              <div className="form-group form-group--wide">
-                <label>Components (comma-separated key=value pairs)</label>
-                <input
-                  value={formData.components}
-                  onChange={(e) => setFormData({...formData, components: e.target.value})}
-                  placeholder="e.g., param1=value1, param2=value2"
-                />
-              </div>
-              <div className="form-group">
-                <label>IP Address</label>
-                <input placeholder="e.g. 192.168.1.1" value={formData.ip_address} onChange={(e) => setFormData({...formData, ip_address: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>Port</label>
-                <input type="number" placeholder="e.g. 8080" min="1" max="65535" value={formData.port} onChange={(e) => setFormData({...formData, port: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>VM Name</label>
-                <input placeholder="e.g. my-fl-vm" value={formData.vm_name} onChange={(e) => setFormData({...formData, vm_name: e.target.value})} />
-                <div style={{ fontSize: '12px', color: 'var(--text-light)', marginTop: '4px' }}>
-                  Names the VM auto-created for you when you start the FL session.
+            <form onSubmit={handleFormSubmit}>
+              <div className="form-section">
+                <div className="form-section-head">
+                  <div className="form-section-icon"><IconTag /></div>
+                  <div className="form-section-titles">
+                    <h4>Session</h4>
+                    <span>Identifies this configuration submission</span>
+                  </div>
+                </div>
+                <div className="fl-form-grid">
+                  <div className="form-group">
+                    <label>Form ID</label>
+                    <input value={formData.form_id} onChange={(e) => setFormData({...formData, form_id: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label>Output Owner ID</label>
+                    <input value={formData.output_owner_id} onChange={(e) => setFormData({...formData, output_owner_id: e.target.value})} />
+                  </div>
                 </div>
               </div>
-              <div className="form-group form-group--wide" style={{ marginTop: '4px' }}>
+
+              <div className="form-section">
+                <div className="form-section-head">
+                  <div className="form-section-icon"><IconSliders /></div>
+                  <div className="form-section-titles">
+                    <h4>Training Parameters</h4>
+                    <span>How the federated rounds run</span>
+                  </div>
+                </div>
+                <div className="fl-form-grid">
+                  <div className="form-group">
+                    <label>Number of Server Rounds</label>
+                    <input type="number" value={formData.num_server_rounds} onChange={(e) => setFormData({...formData, num_server_rounds: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label>Fraction Evaluate</label>
+                    <input type="number" step="0.1" value={formData.fraction_evaluate} onChange={(e) => setFormData({...formData, fraction_evaluate: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label>Local Epochs</label>
+                    <input type="number" value={formData.local_epochs} onChange={(e) => setFormData({...formData, local_epochs: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label>Learning Rate</label>
+                    <input type="number" step="0.001" value={formData.learning_rate} onChange={(e) => setFormData({...formData, learning_rate: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label>Batch Size</label>
+                    <input type="number" value={formData.batch_size} onChange={(e) => setFormData({...formData, batch_size: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label>RAM Usage (MB)</label>
+                    <input type="number" value={formData.ram_usage} onChange={(e) => setFormData({...formData, ram_usage: e.target.value})} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-section">
+                <div className="form-section-head">
+                  <div className="form-section-icon"><IconCpu /></div>
+                  <div className="form-section-titles">
+                    <h4>Model</h4>
+                    <span>What gets trained</span>
+                  </div>
+                </div>
+                <div className="fl-form-grid">
+                  <div className="form-group">
+                    <label>Model</label>
+                    <input value={formData.model} onChange={(e) => setFormData({...formData, model: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label>Framework</label>
+                    <input value={formData.framework} onChange={(e) => setFormData({...formData, framework: e.target.value})} />
+                  </div>
+                  <div className="form-group form-group--wide">
+                    <label>Components (comma-separated key=value pairs)</label>
+                    <input
+                      value={formData.components}
+                      onChange={(e) => setFormData({...formData, components: e.target.value})}
+                      placeholder="e.g., param1=value1, param2=value2"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-section">
+                <div className="form-section-head">
+                  <div className="form-section-icon"><IconPlug /></div>
+                  <div className="form-section-titles">
+                    <h4>Network &amp; VM</h4>
+                    <span>Where this session's server runs</span>
+                  </div>
+                </div>
+                <div className="fl-form-grid">
+                  <div className="form-group">
+                    <label>IP Address</label>
+                    <input placeholder="e.g. 192.168.1.1" value={formData.ip_address} onChange={(e) => setFormData({...formData, ip_address: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label>Port</label>
+                    <input type="number" placeholder="e.g. 8080" min="1" max="65535" value={formData.port} onChange={(e) => setFormData({...formData, port: e.target.value})} />
+                  </div>
+                  <div className="form-group form-group--wide">
+                    <label>VM Name</label>
+                    <input placeholder="e.g. my-fl-vm" value={formData.vm_name} onChange={(e) => setFormData({...formData, vm_name: e.target.value})} />
+                    <div style={{ fontSize: '12px', color: 'var(--text-light)', marginTop: '4px' }}>
+                      Names the VM auto-created for you when you start the FL session.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
                 <button type="submit" className="btn btn-primary" style={{ width: 'auto' }}>
                   {isOutputOwner ? 'Submit Configuration & Select Providers' : 'Submit Configuration'}
                 </button>
