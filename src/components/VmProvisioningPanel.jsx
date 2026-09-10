@@ -8,14 +8,19 @@ const STEP_ICON = { running: "⏳", ok: "✅", error: "❌", done: "✅" };
 // Terraform itself, then `terraform apply`) and shows the live progress log,
 // fed over SSE by vmAutoProvision.service.js — nothing runs in this browser
 // tab, and no command needs to be copy-pasted anywhere.
-export default function VmProvisioningPanel({ user, token, role }) {
-  const [vmName, setVmName] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-  const [starting, setStarting] = useState(false);
+// initialVmName/autoStart let a caller that already collected the VM name
+// elsewhere (e.g. the output-owner's config form, or the data-provider form)
+// skip straight to provisioning instead of asking again here.
+export default function VmProvisioningPanel({ user, token, role, initialVmName = "", autoStart = false }) {
+  const initialAutoStart = autoStart && Boolean(initialVmName.trim());
+  const [vmName, setVmName] = useState(initialVmName);
+  const [submitted, setSubmitted] = useState(initialAutoStart);
+  const [starting, setStarting] = useState(initialAutoStart);
   const [startError, setStartError] = useState(null);
   const [session, setSession] = useState({ status: "idle", events: [] });
   const [downloadError, setDownloadError] = useState(null);
   const unsubRef = useRef(null);
+  const autoStarted = useRef(false);
 
   useEffect(() => {
     if (!user?.username || !role) return undefined;
@@ -25,16 +30,8 @@ export default function VmProvisioningPanel({ user, token, role }) {
     return () => unsubRef.current && unsubRef.current();
   }, [user?.username, role]);
 
-  // The VM is named after whatever the participant types here, not their
-  // username/id, so provisioning only starts once they've submitted a name -
-  // no more auto-fire on mount.
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (submitted || !token || !role) return;
-    const trimmedName = vmName.trim();
-    if (!trimmedName) return;
-    setSubmitted(true);
-    setStarting(true);
+  const doStart = (trimmedName) => {
+    if (!token || !role || !trimmedName) return;
     setStartError(null);
     triggerAutoProvision(role, token, trimmedName)
       .catch((e) => {
@@ -42,6 +39,27 @@ export default function VmProvisioningPanel({ user, token, role }) {
         setStartError(e.message);
       })
       .finally(() => setStarting(false));
+  };
+
+  // The VM is named after whatever the participant types here, not their
+  // username/id, so provisioning only starts once they've submitted a name -
+  // unless a name was already chosen upstream and autoStart says to skip the form.
+  useEffect(() => {
+    if (initialAutoStart && !autoStarted.current) {
+      autoStarted.current = true;
+      doStart(initialVmName.trim());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (submitted) return;
+    const trimmedName = vmName.trim();
+    if (!trimmedName) return;
+    setSubmitted(true);
+    setStarting(true);
+    doStart(trimmedName);
   };
 
   const handleDownloadKey = async () => {
@@ -115,8 +133,13 @@ export default function VmProvisioningPanel({ user, token, role }) {
         </div>
       )}
 
-      {session.status === "done" && (
+      {(session.status === "done" || session.status === "error") && (
         <div style={{ marginTop: "12px" }}>
+          {session.status === "error" && (
+            <div style={{ fontSize: "13px", marginBottom: "8px", opacity: 0.85 }}>
+              The VM may already exist even though provisioning failed — download the key below to SSH in and check.
+            </div>
+          )}
           <button
             className="btn btn-secondary"
             type="button"

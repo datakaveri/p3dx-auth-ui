@@ -3,7 +3,6 @@ import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { DataOwnerForm, DP_VM_NAME_KEY } from "../components/RoleForms";
 import { getMyNotifications, getNotificationResponses, markNotificationRead, respondToNotification, notifyAzureSignIn } from "../api/auth";
 import { signInProviderWithAzure, completeProviderAzureSignIn } from "../api/azureAuth";
-import { triggerAutoProvision, subscribeToVmProvisioning, downloadVmPrivateKey } from "../api/vmProvisioning";
 import FLSessionStartModal from "../components/FLSessionStartModal";
 import { BACKEND_URL } from "../config";
 
@@ -53,13 +52,6 @@ export default function FederatedLearningDashboard() {
   // Notification ids we've already auto-popped the modal for, so a
   // still-unread notification doesn't reopen it on every poll/refetch.
   const autoOpenedSessionStartIds = useRef(new Set());
-  // Live progress of the VM Terraform is creating for this provider,
-  // auto-kicked-off right after their Azure sign-in above completes (see
-  // startVmProvisioning) - streamed over vm-provisioning/stream and shown
-  // inline in FLSessionStartModal.
-  const [vmProvisioning, setVmProvisioning] = useState({ status: "idle", events: [] });
-  const [vmKeyError, setVmKeyError] = useState(null);
-  const vmProvisionUnsubRef = useRef(null);
   // Editable right in the sign-in popup (see FLSessionStartModal) so naming
   // the VM can't be missed by skipping the separate Data Provider Form -
   // both read/write the same DP_VM_NAME_KEY sessionStorage entry.
@@ -198,27 +190,16 @@ export default function FederatedLearningDashboard() {
     if (ctx?.notificationId) {
       handleMarkRead(ctx.notificationId);
     }
-    startVmProvisioning(account, freshToken);
-  };
-
-  // Kicks off automated VM creation (backend device-code Azure login +
-  // Terraform, see vmAutoProvision.service.js) right after this provider's
-  // sign-in above completes. Named after whatever they typed into the "VM
-  // Name" field on their Data Provider Form (see DP_VM_NAME_KEY /
-  // RoleForms.jsx) - falls back to their account name if they never touched
-  // that form. Fire-and-forget: progress arrives over the vm-provisioning
-  // SSE subscription below.
-  const startVmProvisioning = async (account, freshToken) => {
+    // Send this provider on to the FL Orchestrator page to create their own
+    // VM (backend device-code Azure login + Terraform, see
+    // vmAutoProvision.service.js) - kept off this page so it stays focused
+    // on the FL workflow itself. Named after whatever they typed into the
+    // "VM Name" field on their Data Provider Form (see DP_VM_NAME_KEY /
+    // RoleForms.jsx) - falls back to their account name if they never
+    // touched that form.
     const vmName = sessionStorage.getItem(DP_VM_NAME_KEY) || account?.username || user?.username;
-    const authToken = freshToken || token;
-    if (!vmName || !authToken) return;
-    try {
-      await triggerAutoProvision("data-provider", authToken, vmName);
-    } catch (err) {
-      setVmProvisioning(prev => ({
-        status: "error",
-        events: [...prev.events, { step: "Starting", status: "error", message: err.message }],
-      }));
+    if (vmName) {
+      navigate('/app/services/fl/orchestrator', { state: { role: 'data-provider', vmName } });
     }
   };
 
@@ -351,29 +332,6 @@ export default function FederatedLearningDashboard() {
       wsRef.current = null;
     };
   }, [token, hasDataProvider, user?.username]);
-
-  // Live progress for this provider's auto-provisioned VM (see
-  // startVmProvisioning above), independent of the sign-in modal being open
-  // so a page refresh mid-provisioning still picks the run back up.
-  useEffect(() => {
-    if (!hasDataProvider || !user?.username) return undefined;
-    vmProvisionUnsubRef.current = subscribeToVmProvisioning(user.username, "data-provider", (data) => {
-      setVmProvisioning({ status: data.status || "idle", events: data.events || [] });
-    });
-    return () => {
-      vmProvisionUnsubRef.current?.();
-      vmProvisionUnsubRef.current = null;
-    };
-  }, [hasDataProvider, user?.username]);
-
-  const handleDownloadVmKey = async () => {
-    setVmKeyError(null);
-    try {
-      await downloadVmPrivateKey(token);
-    } catch (err) {
-      setVmKeyError(err.message);
-    }
-  };
 
   // "fl_session_start" invites live only in the popup (see FLSessionStartModal
   // above) - they're deliberately excluded from the list so a provider never
@@ -894,46 +852,6 @@ export default function FederatedLearningDashboard() {
         vmName={dpVmName}
         onVmNameChange={setDpVmName}
       />
-
-      {vmProvisioning.events.length > 0 && (
-        <div className="card" style={{ marginBottom: "18px" }}>
-          <h3 className="section-title" style={{ marginTop: 0 }}>Provisioning your VM</h3>
-          <div style={{ fontSize: "13px", marginBottom: "6px" }}>
-            Status: <strong>{vmProvisioning.status}</strong>
-          </div>
-          {(() => {
-            const deviceLoginEvent = vmProvisioning.events.find(
-              (e) => e.step === "Azure device login" && e.status === "running"
-            );
-            return deviceLoginEvent && (
-              <div className="fl-result-banner fl-result-banner--ok" style={{ marginBottom: "8px" }}>
-                {deviceLoginEvent.message}
-              </div>
-            );
-          })()}
-          <ul style={{ listStyle: "none", padding: 0, margin: 0, fontSize: "13px" }}>
-            {vmProvisioning.events.map((e, i) => (
-              <li key={i} style={{ padding: "3px 0" }}>
-                {e.status === "error" ? "❌" : e.status === "running" ? "⏳" : "✅"} <strong>{e.step}</strong>
-                {e.command && <code style={{ marginLeft: "6px", opacity: 0.8 }}>{e.command}</code>}
-                {e.message && <span style={{ marginLeft: "6px" }}>— {e.message}</span>}
-              </li>
-            ))}
-          </ul>
-          {vmProvisioning.status === "done" && (
-            <div style={{ marginTop: "10px" }}>
-              <button className="btn btn-secondary" type="button" style={{ width: "auto" }} onClick={handleDownloadVmKey}>
-                Download SSH Key
-              </button>
-              {vmKeyError && (
-                <div className="fl-result-banner fl-result-banner--error" style={{ marginTop: "8px" }}>
-                  {vmKeyError}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
       <div style={{ marginBottom: "18px" }}>
         <h3 className="section-title">Actions</h3>

@@ -159,9 +159,36 @@ export async function notifyRoster(selectedProviders, willingProviders, outputOw
   return data;
 }
 
-// Output owner: kick off the FL session for a submission - notifies every
-// provider on the finalized roster to sign in with their own Azure account.
-export async function startFlSession(submissionId, azureToken, participatingProviders, token) {
+// Output owner: request that the FL session for a submission be started.
+// Queues the request for the fl-orchestrator operator (see
+// pages/fl_orchestrator/FL_Orchestrator.jsx) rather than starting it directly - the owner
+// just gets a "requested, waiting" result back.
+export async function queueFlSession(submissionId, participatingProviders, vmName, token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/gov/queue-fl-session`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      submission_id: submissionId,
+      participating_providers: participatingProviders,
+      vm_name: vmName,
+    }),
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to request FL session start");
+  }
+  return data;
+}
+
+// fl-orchestrator operator: actually kicks off the FL session for a
+// submission - notifies every provider on the roster to sign in with their
+// own Azure account. outputOwnerUsername attributes the resulting
+// notification to the real owner (rather than "fl-orchestrator", the actual
+// caller) - see the matching parameter on the backend route.
+export async function startFlSession(submissionId, azureToken, participatingProviders, token, outputOwnerUsername) {
   const res = await fetch(`${BACKEND_URL}/p3dx/gov/start-fl-session`, {
     method: "POST",
     headers: {
@@ -172,6 +199,7 @@ export async function startFlSession(submissionId, azureToken, participatingProv
       submission_id: submissionId,
       azure_token: azureToken,
       participating_providers: participatingProviders,
+      output_owner_username: outputOwnerUsername,
     }),
   });
   const data = await parseJsonSafe(res);

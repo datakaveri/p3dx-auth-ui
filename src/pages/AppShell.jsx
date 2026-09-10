@@ -31,6 +31,9 @@ export default function AppShell() {
 
   const roles = useMemo(() => user?.roles || [], [user]);
   const isAdmin = roles.includes("admin");
+  // The fl-orchestrator platform operator (see p3dx-aaa/scripts/create-fl-orchestrator-user.js)
+  // gets its own landing page instead of the normal owner/provider flow.
+  const isOrchestrator = roles.includes("fl-orchestrator");
 
   useEffect(() => {
     if (!token) {
@@ -112,14 +115,25 @@ export default function AppShell() {
 
     const path = location.pathname;
     if (path === "/app" || path === "/app/") {
-      navigate(isAdmin ? "/app/admin" : "/app/role-request", { replace: true });
+      navigate(isOrchestrator ? "/app/orchestrator" : isAdmin ? "/app/admin" : "/app/role-request", { replace: true });
     }
-  }, [user, isAdmin, location.pathname, navigate]);
+  }, [user, isAdmin, isOrchestrator, location.pathname, navigate]);
 
   useEffect(() => {
     if (!user) return;
 
     const path = location.pathname;
+    if (isOrchestrator) {
+      if (!path.startsWith("/app/orchestrator")) {
+        navigate("/app/orchestrator", { replace: true });
+      }
+      return;
+    }
+    if (path.startsWith("/app/orchestrator")) {
+      navigate("/app/services", { replace: true });
+      return;
+    }
+
     if (isAdmin && (path.startsWith("/app/services") || path.startsWith("/app/role-request"))) {
       navigate("/app/admin", { replace: true });
       return;
@@ -128,7 +142,7 @@ export default function AppShell() {
     if (!isAdmin && path.startsWith("/app/admin")) {
       navigate("/app/services", { replace: true });
     }
-  }, [user, isAdmin, location.pathname, navigate]);
+  }, [user, isAdmin, isOrchestrator, location.pathname, navigate]);
 
   if (loading || !user) {
     return (

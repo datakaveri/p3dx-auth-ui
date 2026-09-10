@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useOutletContext } from 'react-router-dom';
+import { useOutletContext } from 'react-router-dom';
 import { BACKEND_URL } from '../config';
-import { notifyProviders, getNotificationResponses, notifyRoster, getSessionContract, startFlSession, getMyNotifications } from '../api/auth';
-import { getAzureAccessToken } from '../api/azureAuth';
-import { triggerAutoProvision, subscribeToVmProvisioning, downloadVmPrivateKey } from '../api/vmProvisioning';
+import { notifyProviders, getNotificationResponses, notifyRoster, getSessionContract, getMyNotifications, queueFlSession } from '../api/auth';
 
 const GOVERNANCE_LAYER_URL = `${BACKEND_URL}/p3dx/form-submissions`;
 const DATA_PROVIDER_FORM_URL = `${BACKEND_URL}/p3dx/data-provider-forms`;
@@ -80,7 +78,6 @@ function initials(name) {
 
 export default function FederatedLearning() {
   const { user, token } = useOutletContext();
-  const navigate = useNavigate();
 
   // Check user roles
   const roles = user?.roles || [];
@@ -123,7 +120,7 @@ export default function FederatedLearning() {
     ip_address: '',
     port: '',
     // Not part of buildOwnerPayload below (governance layer doesn't need
-    // it) - only read by runStartFlSession to name the VM Terraform creates.
+    // it) - only read by handleStartFlSession to name the VM Terraform creates.
     vm_name: user?.username || ''
   });
   const [msg, setMsg] = useState(null);
@@ -137,15 +134,9 @@ export default function FederatedLearning() {
   // Independent in-flight flags so the three actions don't disable each other.
   const [downloading, setDownloading] = useState(false);
   const [pushing, setPushing] = useState(false);
-  const [startingSession, setStartingSession] = useState(false);
   const [distributeResult, setDistributeResult] = useState(null);
   // Data-provider "download my client config" status.
   const [dpConfigMsg, setDpConfigMsg] = useState(null);
-  // Live progress of the VM Terraform is creating for this owner, auto-kicked
-  // off right after Start FL Session succeeds (see runStartFlSession) - same
-  // backend flow as the data-provider side, just role: 'user'.
-  const [vmProvisioning, setVmProvisioning] = useState({ status: 'idle', events: [] });
-  const [vmKeyError, setVmKeyError] = useState(null);
 
   // Step tracking for federated learning flow (only for output owners). The owner
   // fills + submits the configuration first ('form'), then selects the data
@@ -388,26 +379,6 @@ export default function FederatedLearning() {
     return () => clearInterval(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, distributeResult?.ok]);
-
-  // Live progress for this owner's auto-provisioned VM (see
-  // runStartFlSession above) - independent of distributeResult so a page
-  // refresh mid-provisioning still picks the run back up.
-  useEffect(() => {
-    if (!user?.username) return undefined;
-    const unsub = subscribeToVmProvisioning(user.username, 'user', (data) => {
-      setVmProvisioning({ status: data.status || 'idle', events: data.events || [] });
-    });
-    return unsub;
-  }, [user?.username]);
-
-  const handleDownloadVmKey = async () => {
-    setVmKeyError(null);
-    try {
-      await downloadVmPrivateKey(sessionStorage.getItem('access_token') || token);
-    } catch (err) {
-      setVmKeyError(err.message);
-    }
-  };
 
   // Output owners: load the final model on mount and poll so it appears once the
   // FL server finishes writing the final round's checkpoint - no manual refresh.
@@ -709,68 +680,27 @@ export default function FederatedLearning() {
     }
   };
 
-  // Does the actual provisioning call once we have both tokens in hand -
-  // shared by the button handler and by the auto-resume-after-Azure-login
-  // effect below, so both paths render identical results.
-  const runStartFlSession = async (id, azureToken) => {
-    const freshToken = sessionStorage.getItem('access_token') || token;
-    setStartingSession(true);
-    setDistributeResult(null);
-    try {
-      const data = await startFlSession(id, azureToken, finalRoster, freshToken);
-      if (data.status === 'SUCCESS') {
-        setDistributeResult({
-          ok: true,
-          text: `FL session started - ${data.notified} provider(s) notified to sign in with Azure.`,
-        });
-        // Kick off this owner's own VM (backend device-code Azure login +
-        // Terraform, see vmAutoProvision.service.js) now that the session has
-        // actually started - fire-and-forget, progress arrives over the
-        // vm-provisioning SSE subscription below.
-        const vmName = formData.vm_name || user?.username;
-        if (vmName) {
-          triggerAutoProvision('user', freshToken, vmName).catch((err) => {
-            setVmProvisioning(prev => ({
-              status: 'error',
-              events: [...prev.events, { step: 'Starting', status: 'error', message: err.message }],
-            }));
-          });
-        }
-      } else {
-        setDistributeResult({ ok: false, text: data.message || data.error || 'Failed to start FL session.' });
-      }
-    } catch (e) {
-      setDistributeResult({ ok: false, text: `Start FL session failed: ${e.message}` });
-    } finally {
-      setStartingSession(false);
-    }
-  };
-
-  // Owner-side: bring up the FL run for this submission. Requires an Azure
-  // sign-in first (a popup window - the resulting token lets gov_layer's
-  // Terraform step create the VM(s) under this user's Azure subscription).
+  // Owner-side: just queues the request - no Azure sign-in, no popup, no
+  // navigation here. The fl-orchestrator operator account picks this up from
+  // their own /app/orchestrator queue (pages/fl_orchestrator/FL_Orchestrator.jsx) and does
+  // the actual Azure sign-in + start-fl-session + VM provisioning from there.
   const handleStartFlSession = async () => {
-    // Visible immediately, synchronously on click - if this text never shows
-    // up, the click isn't reaching this handler at all (stale bundle, an
-    // overlapping element eating the click, etc), which narrows the problem
-    // down to something outside this function entirely.
-    setStartingSession(true);
-    setDistributeResult({ ok: true, text: 'Checking Azure sign-in...' });
+    const id = reportSubmissionId || sessionStorage.getItem('last_report_submission_id');
+    if (!id) {
+      setDistributeResult({ ok: false, text: 'No submission found. Submit the request first.' });
+      return;
+    }
 
+    const freshToken = sessionStorage.getItem('access_token') || token;
+    const vmName = formData.vm_name || user?.username || '';
     try {
-      const id = reportSubmissionId || sessionStorage.getItem('last_report_submission_id');
-      if (!id) {
-        setDistributeResult({ ok: false, text: 'No submission found. Submit the request first.' });
-        setStartingSession(false);
-        return;
-      }
-
-      const azureToken = await getAzureAccessToken();
-      await runStartFlSession(id, azureToken);
+      await queueFlSession(id, finalRoster, vmName, freshToken);
+      setDistributeResult({
+        ok: true,
+        text: 'Start FL Session requested — the platform will start it shortly. This can take some time.',
+      });
     } catch (e) {
-      console.error('[Azure] Start FL Session failed:', e);
-      setDistributeResult({ ok: false, text: `Azure sign-in failed: ${e?.message || String(e)}` });
-      setStartingSession(false);
+      setDistributeResult({ ok: false, text: `Failed to request FL session start: ${e.message}` });
     }
   };
 
@@ -814,7 +744,7 @@ export default function FederatedLearning() {
               )}
             </div>
             <div className="modal-actions">
-              <button className="btn btn-secondary" style={{ width: 'auto' }} onClick={() => setShowDistribute(false)} disabled={downloading || pushing || startingSession}>
+              <button className="btn btn-secondary" style={{ width: 'auto' }} onClick={() => setShowDistribute(false)} disabled={downloading || pushing}>
                 Close
               </button>
               <button className="btn btn-secondary" style={{ width: 'auto' }} onClick={handleDownloadConfig} disabled={downloading}>
@@ -823,8 +753,8 @@ export default function FederatedLearning() {
               <button className="btn btn-primary" style={{ width: 'auto' }} onClick={handlePushConfig} disabled={pushing}>
                 {pushing ? 'Sending...' : 'Send to Providers'}
               </button>
-              <button className="btn btn-primary" style={{ width: 'auto' }} onClick={handleStartFlSession} disabled={startingSession}>
-                {startingSession ? 'Starting...' : 'Start FL Session'}
+              <button className="btn btn-primary" style={{ width: 'auto' }} onClick={handleStartFlSession}>
+                Start FL Session
               </button>
             </div>
           </div>
@@ -1326,13 +1256,13 @@ export default function FederatedLearning() {
                   type="button"
                   className="btn btn-primary"
                   onClick={handleStartFlSession}
-                  disabled={startingSession || !reportSubmissionId || !finalRosterSent}
+                  disabled={!reportSubmissionId || !finalRosterSent}
                   style={{ width: 'auto' }}
                   title={finalRosterSent
                     ? "Provision and launch the FL server + selected providers' clients for this submission"
                     : 'Send the Final Roster first to unlock this'}
                 >
-                  {startingSession ? 'Starting...' : 'Start FL Session'}
+                  Start FL Session
                 </button>
               </div>
               <div className="fl-footnote">
@@ -1359,44 +1289,6 @@ export default function FederatedLearning() {
                       <li key={username}>{username} — {new Date(at).toLocaleTimeString()}</li>
                     ))}
                   </ul>
-                </div>
-              )}
-              {vmProvisioning.events.length > 0 && (
-                <div style={{ marginTop: '10px' }}>
-                  <div style={{ fontSize: '13px', marginBottom: '6px' }}>
-                    Provisioning your VM — status: <strong>{vmProvisioning.status}</strong>
-                  </div>
-                  {(() => {
-                    const deviceLoginEvent = vmProvisioning.events.find(
-                      (e) => e.step === 'Azure device login' && e.status === 'running'
-                    );
-                    return deviceLoginEvent && (
-                      <div className="fl-result-banner fl-result-banner--ok" style={{ marginBottom: '8px' }}>
-                        {deviceLoginEvent.message}
-                      </div>
-                    );
-                  })()}
-                  <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: '13px' }}>
-                    {vmProvisioning.events.map((e, i) => (
-                      <li key={i} style={{ padding: '3px 0' }}>
-                        {e.status === 'error' ? '❌' : e.status === 'running' ? '⏳' : '✅'} <strong>{e.step}</strong>
-                        {e.command && <code style={{ marginLeft: '6px', opacity: 0.8 }}>{e.command}</code>}
-                        {e.message && <span style={{ marginLeft: '6px' }}>— {e.message}</span>}
-                      </li>
-                    ))}
-                  </ul>
-                  {vmProvisioning.status === 'done' && (
-                    <div style={{ marginTop: '10px' }}>
-                      <button className="btn btn-secondary" type="button" style={{ width: 'auto' }} onClick={handleDownloadVmKey}>
-                        Download SSH Key
-                      </button>
-                      {vmKeyError && (
-                        <div className="fl-result-banner fl-result-banner--error" style={{ marginTop: '8px' }}>
-                          {vmKeyError}
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               )}
             </div>

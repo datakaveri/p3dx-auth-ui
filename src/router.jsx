@@ -6,6 +6,8 @@ import UserDashboard from "./pages/UserDashboard";
 import FederatedLearningDashboard from "./pages/FederatedLearningDashboard";
 import RoleRequest from "./pages/RoleRequest";
 import FederatedLearning from "./pages/FederatedLearning";
+import FlOrchestrator from "./pages/FlOrchestrator";
+import FL_Orchestrator from "./pages/fl_orchestrator/FL_Orchestrator";
 import AdminDashboard from "./pages/AdminDashboard";
 import ServicesLanding from "./pages/ServicesLanding";
 import PolicyForm from "./pages/PolicyForm";
@@ -32,6 +34,7 @@ export const router = createBrowserRouter([
       { path: "services/anon", element: <UserDashboard /> },
       { path: "services/fl", element: <FederatedLearningDashboard /> },
       { path: "services/fl/federated-learning", element: <FederatedLearning /> },
+      { path: "services/fl/orchestrator", element: <FlOrchestrator /> },
       { path: "services/smpc", element: <UserDashboard /> },
       { path: "services/dp", element: <UserDashboard /> },
       { path: "services/policies", element: <PolicyForm /> },
@@ -39,6 +42,7 @@ export const router = createBrowserRouter([
       { path: "services/run", element: <WorkloadForm /> },
       { path: "services/run/:contractId", element: <WorkloadResult /> },
       { path: "admin", element: <AdminDashboard /> },
+      { path: "orchestrator", element: <FL_Orchestrator /> },
     ],
   },
 ]);
