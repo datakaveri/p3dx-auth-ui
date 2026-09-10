@@ -624,6 +624,244 @@ a:hover {
   font-weight: 600;
 }
 
+/* ===== InfraPolicyForm — section panels & node-pool repeater =====
+   See Infra_Form_Changes.md item #12. Each top-level form section (Platform,
+   Infrastructure, Capacity, ...) is one .form-section panel with an icon
+   header, instead of the plain bold-text + border-top divider the rest of
+   the app's forms (PolicyForm.jsx, WorkloadForm.jsx) still use — kept scoped
+   to InfraPolicyForm rather than applied everywhere, so this doesn't touch
+   those pages' unrelated layouts. */
+.form-section {
+  background: var(--bg-white);
+  /* 20% darker than --border-color/--shadow-sm (alpha *1.2 on each layer)
+     so panels read as more separate — set locally rather than changing
+     those shared tokens, which are also used by unrelated pages/elements
+     (.card, inputs, buttons, ...). */
+  border: 1px solid rgba(209, 213, 219, 0.72);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.084), 0 1px 2px -1px rgba(0, 0, 0, 0.048);
+  padding: 18px 20px 20px;
+}
+
+.form-section + .form-section {
+  margin-top: 14px;
+}
+
+.form-section-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 16px;
+}
+
+.form-section-icon {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(37, 99, 235, 0.09);
+  color: var(--primary-dark);
+}
+
+.form-section-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.form-section-titles h4 {
+  font-size: 14.5px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--text-dark);
+}
+
+.form-section-titles span {
+  font-size: 12px;
+  color: var(--text-light);
+}
+
+.capacity-sub-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-light);
+  margin: 0 0 10px;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(209, 213, 219, 0.8);
+}
+
+/* Node-pool repeater — one card per pool, added/removed by "Number of Node
+   Pools" above. Left-edge accent reuses the same accent-border idea
+   .error-message already uses elsewhere, just applied constructively. */
+.node-pool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.node-pool-card {
+  background: var(--bg-light);
+  /* Same 20%-darker border/shadow as .form-section — see comment there. */
+  border: 1px solid rgba(209, 213, 219, 0.72);
+  border-left: 4px solid var(--primary-color);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.084), 0 1px 2px -1px rgba(0, 0, 0, 0.048);
+}
+
+.node-pool-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.node-pool-head-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.node-pool-num {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--primary-color);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.node-pool-title {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+
+/* Per-node vCPU/RAM — a bordered capsule with a divider between the two
+   columns (Option C3, picked after reviewing four options — see
+   Infra_Form_Changes.md item #12). Reads as one grouped object instead of
+   numbers floating loose in the header, and keeps RAM in a fixed spot when
+   scanning down a stack of pools. */
+.node-pool-stat {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-white);
+  border: 1px solid rgba(209, 213, 219, 0.72);
+  border-radius: 10px;
+}
+
+.node-pool-stat .stat-col {
+  padding: 7px 16px;
+}
+
+.node-pool-stat .stat-col + .stat-col {
+  border-left: 1px solid rgba(209, 213, 219, 0.72);
+}
+
+.node-pool-stat .label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-light);
+  margin: 0 0 2px;
+  /* Cancels the app-wide .label rule's text-transform: uppercase (see
+     global .label above) — left uncancelled, "vCPU" renders as "VCPU",
+     the exact bug caught while reviewing the redesign mockup. */
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.node-pool-stat .value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-dark);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Execution Environment — derived read-only summary at the bottom of
+   Capacity, computed from whichever sizes are actually chosen (VM's one
+   size, or every node pool's) rather than picked manually. */
+.exec-env-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed rgba(209, 213, 219, 0.8);
+  flex-wrap: wrap;
+}
+
+.exec-label-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.exec-env-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dark);
+}
+
+.exec-env-hint {
+  font-size: 11.5px;
+  color: var(--text-light);
+  max-width: 380px;
+}
+
+.exec-env-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 13px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.exec-env-badge.state-single {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.14), rgba(5, 150, 105, 0.08));
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #065f46;
+}
+
+.exec-env-badge.state-mixed {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(217, 119, 6, 0.09));
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #78350f;
+}
+
+.exec-env-badge.state-none {
+  background: var(--bg-light);
+  border: 1px solid var(--border-color);
+  color: var(--text-light);
+}
+
+.exec-env-badge.state-empty {
+  background: var(--bg-light);
+  border: 1px dashed var(--border-color);
+  color: var(--text-light);
+  font-weight: 500;
+}
+
+.exec-env-detail {
+  font-size: 11.5px;
+  color: var(--text-light);
+  margin-top: 4px;
+  text-align: right;
+}
+
 .section-title {
   font-size: 18px;
   font-weight: 600;
@@ -672,6 +910,20 @@ a:hover {
   outline: none;
   border-color: rgba(59, 130, 246, 0.8);
   box-shadow: var(--ring);
+}
+
+/* Was missing entirely — a `readOnly disabled` .input (Infrastructure ID,
+   Provider ID, ...) rendered with the exact same white background and dark
+   text as an editable one, giving no visual cue it can't be typed into.
+   App-wide fix rather than scoped to one page: every .input/.select using
+   disabled/readOnly gets this, including the disabled-while-submitting
+   state most forms already set via disabled={submitted}. */
+.input:disabled,
+.input[readonly],
+.select:disabled {
+  background-color: var(--bg-light);
+  color: var(--text-light);
+  cursor: not-allowed;
 }
 
 .input-wrapper {

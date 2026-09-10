@@ -33,16 +33,17 @@ export async function runWorkload(token, { datasetId, applicationId }) {
 }
 
 // Builds and returns a contract for display only — does not submit/deploy it.
-// datasetId is the dataset's real item_id (see WorkloadForm.jsx's dataset
-// picker); datasetName is its display name, sent separately so gov_layer can
-// look the policy up by the real id while still labeling the contract with
-// the name a human recognizes. infraId is the InfraCat selection (SMPC
-// only); omitted for TEE/FL.
-export async function previewContract(token, { datasetId, datasetName, technique, infraId }) {
+// datasets is one or more { datasetId, datasetName } pairs — datasetId is
+// each dataset's real item_id (see WorkloadForm.jsx's dataset picker);
+// datasetName is its display name, sent separately so gov_layer can look
+// the policy up by the real id while still labeling the contract with the
+// name a human recognizes. infraIds is the InfraCat selection (SMPC only,
+// exactly 2); omitted for TEE/FL.
+export async function previewContract(token, { datasets, technique, infraIds }) {
   const res = await fetch(`${BACKEND_URL}/p3dx/workloads/preview-contract`, {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify({ datasetId, datasetName, technique, ...(infraId ? { infraId } : {}) }),
+    body: JSON.stringify({ datasets, technique, ...(infraIds?.length ? { infraIds } : {}) }),
   });
 
   const data = await parseJsonSafe(res);

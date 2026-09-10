@@ -34,6 +34,11 @@ export default function AppShell() {
   // The fl-orchestrator platform operator (see p3dx-aaa/scripts/create-fl-orchestrator-user.js)
   // gets its own landing page instead of the normal owner/provider flow.
   const isOrchestrator = roles.includes("fl-orchestrator");
+  // A user only ever holds one of these two provider roles in practice (same
+  // assumption UserDashboard.jsx's keyRoleName makes) — drives which
+  // role-exclusive management dashboard the nav "Manage" tab points at.
+  const hasInfraProvider = roles.includes("infra-provider");
+  const hasDataProvider = roles.includes("data-provider");
 
   useEffect(() => {
     if (!token) {
@@ -177,6 +182,28 @@ export default function AppShell() {
               <a className={location.pathname.startsWith("/app/services") ? "tab tab-active" : "tab"} href="/app/services">
                 Services
               </a>
+              {/* Role-exclusive management dashboards ("My Infrastructure" /
+                  "My Datasets") — migrated here from a UserDashboard.jsx
+                  action card so they're reachable regardless of which
+                  service tab is active. Renders for at most one of the two
+                  roles, and not at all otherwise. */}
+              {hasInfraProvider || hasDataProvider ? (
+                <a
+                  className={
+                    location.pathname.startsWith("/app/services/infra-policy/my") ||
+                    location.pathname.startsWith("/app/services/policies/my")
+                      ? "tab tab-active"
+                      : "tab"
+                  }
+                  // Infra-first landing target when a user holds both roles —
+                  // the in-page tab switcher on each dashboard (see
+                  // MyInfraDashboard.jsx/MyDatasetsDashboard.jsx) is what
+                  // makes the other one reachable, not this link.
+                  href={hasInfraProvider ? "/app/services/infra-policy/my" : "/app/services/policies/my"}
+                >
+                  Manage
+                </a>
+              ) : null}
             </>
           )}
           <button
