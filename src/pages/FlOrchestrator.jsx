@@ -13,6 +13,7 @@ export default function FlOrchestrator() {
   const params = new URLSearchParams(location.search);
   const role = location.state?.role || params.get("role") || "data-provider";
   const vmName = location.state?.vmName || params.get("vmName") || "";
+  const submissionId = location.state?.submissionId || params.get("submissionId") || null;
   const roleLabel = role === "user" ? "output-owner" : "data-provider";
 
   return (
@@ -26,7 +27,7 @@ export default function FlOrchestrator() {
         </div>
       </div>
 
-      <VmProvisioningPanel user={user} token={token} role={role} initialVmName={vmName} autoStart={Boolean(vmName)} />
+      <VmProvisioningPanel user={user} token={token} role={role} initialVmName={vmName} autoStart={Boolean(vmName)} submissionId={submissionId} />
 
       <button className="btn btn-secondary" type="button" style={{ width: "auto" }} onClick={() => navigate(-1)}>
         Back

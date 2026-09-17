@@ -22,15 +22,20 @@ const POLL_MS = 5000;
 // page is where a human actually does the Azure sign-in Microsoft requires,
 // then starts the session + provisions its VM on the owner's behalf.
 export default function FL_Orchestrator() {
-  const { user, token } = useOutletContext();
+  const { token } = useOutletContext();
   const [pending, setPending] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  // Only one VM provisioning run is possible at a time per account (the
-  // backend keys it by username - see /vm-provisioning/auto-create), so this
-  // page only ever works one queued request at a time.
-  const [activeSession, setActiveSession] = useState(null); // { notificationId, submissionId, vmName }
-  const [processingId, setProcessingId] = useState(null);
+  // Every pending request can be signed in to and provisioned at once - Azure
+  // device-code login is isolated per run, and each VmProvisioningPanel below
+  // tracks its own run independently (see VmProvisioningPanel.jsx). The one
+  // thing that still serializes is the actual `terraform apply` step, handled
+  // server-side (vmAutoProvision.service.js queues those FIFO) - this page
+  // doesn't need to know about that queueing.
+  const [activeSessions, setActiveSessions] = useState([]); // [{ notificationId, submissionId, vmName }]
+  // A Set, not a single id - with multiple rows startable at once, more than
+  // one can be mid-flight (Azure sign-in + start-fl-session) simultaneously.
+  const [processingIds, setProcessingIds] = useState(() => new Set());
   const [processError, setProcessError] = useState(null);
 
   const fetchPending = async () => {
@@ -57,7 +62,7 @@ export default function FL_Orchestrator() {
 
   const handleProcess = async (notification) => {
     const payload = parseNotificationPayload(notification);
-    setProcessingId(notification.id);
+    setProcessingIds((prev) => new Set(prev).add(notification.id));
     setProcessError(null);
     try {
       const azureToken = await getAzureAccessToken();
@@ -70,15 +75,22 @@ export default function FL_Orchestrator() {
       );
       await markNotificationRead(notification.id, token);
       setPending((prev) => prev.filter((n) => n.id !== notification.id));
-      setActiveSession({
-        notificationId: notification.id,
-        submissionId: payload.submission_id,
-        vmName: payload.vm_name || payload.output_owner_username || "",
-      });
+      setActiveSessions((prev) => [
+        ...prev,
+        {
+          notificationId: notification.id,
+          submissionId: payload.submission_id,
+          vmName: payload.vm_name || payload.output_owner_username || "",
+        },
+      ]);
     } catch (e) {
       setProcessError(`Submission ${payload.submission_id}: ${e.message}`);
     } finally {
-      setProcessingId(null);
+      setProcessingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(notification.id);
+        return next;
+      });
     }
   };
 
@@ -96,15 +108,16 @@ export default function FL_Orchestrator() {
       {error && <div className="fl-result-banner fl-result-banner--error">{error}</div>}
       {processError && <div className="fl-result-banner fl-result-banner--error">{processError}</div>}
 
-      {activeSession && (
+      {activeSessions.map((s) => (
         <VmProvisioningPanel
-          user={user}
+          key={s.notificationId}
           token={token}
           role="user"
-          initialVmName={activeSession.vmName}
+          initialVmName={s.vmName}
           autoStart
+          submissionId={s.submissionId}
         />
-      )}
+      ))}
 
       <div className="card">
         {loading ? (
@@ -115,8 +128,8 @@ export default function FL_Orchestrator() {
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
             {pending.map((n) => {
               const payload = parseNotificationPayload(n);
-              const busy = processingId === n.id;
-              const disabled = busy || (activeSession && activeSession.notificationId !== n.id);
+              const busy = processingIds.has(n.id);
+              const disabled = busy;
               return (
                 <li
                   key={n.id}
@@ -132,6 +145,12 @@ export default function FL_Orchestrator() {
                     <div style={{ fontWeight: 500 }}>Submission {payload.submission_id}</div>
                     <div style={{ fontSize: "13px", color: "var(--text-light)" }}>
                       Owner: {payload.output_owner_username || "unknown"} · {(payload.participating_providers || []).length} provider(s)
+                    </div>
+                    <div style={{ fontSize: "13px", color: "var(--text-light)" }}>
+                      Project: {payload.project_id || "—"}
+                    </div>
+                    <div style={{ fontSize: "13px", color: "var(--text-light)" }}>
+                      {n.created_at ? new Date(n.created_at).toLocaleString() : ""}
                     </div>
                   </div>
                   <button

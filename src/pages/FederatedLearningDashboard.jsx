@@ -199,7 +199,7 @@ export default function FederatedLearningDashboard() {
     // touched that form.
     const vmName = sessionStorage.getItem(DP_VM_NAME_KEY) || account?.username || user?.username;
     if (vmName) {
-      navigate('/app/services/fl/orchestrator', { state: { role: 'data-provider', vmName } });
+      navigate('/app/services/fl/orchestrator', { state: { role: 'data-provider', vmName, submissionId: ctx?.submissionId } });
     }
   };
 
@@ -753,7 +753,6 @@ export default function FederatedLearningDashboard() {
                             ðŸ“œ Federated Learning Contract
                           </div>
                           <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 10px" }}>
-                            <span style={{ color: "#888" }}>Project</span><span><code>{contract.project_id}</code></span>
                             <span style={{ color: "#888" }}>Session</span><span><code>{sessionInfo.session_id}</code></span>
                             <span style={{ color: "#888" }}>Requested by</span><span>{sessionInfo.requested_by}</span>
                           </div>

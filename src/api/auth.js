@@ -104,6 +104,21 @@ export async function getMyNotifications(token) {
   return data;
 }
 
+// The caller's own Projects list — fl-orchestrator sees every project,
+// anyone else sees only their own (as output owner).
+export async function getMyProjects(token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/projects`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to fetch projects");
+  }
+  return data;
+}
+
 export async function markNotificationRead(notificationId, token) {
   const res = await fetch(`${BACKEND_URL}/p3dx/notifications/${notificationId}/read`, {
     method: "POST",
@@ -183,6 +198,28 @@ export async function queueFlSession(submissionId, participatingProviders, vmNam
   return data;
 }
 
+// Output owner: "Start Again" on a project (ProjectsList.jsx) - re-queues the
+// same session for the fl-orchestrator with the same data-provider roster,
+// without redoing invite/accept.
+export async function restartFlSession(submissionId, providerUsernames, token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/gov/restart-fl-session`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      submission_id: submissionId,
+      provider_usernames: providerUsernames,
+    }),
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to restart FL session");
+  }
+  return data;
+}
+
 // fl-orchestrator operator: actually kicks off the FL session for a
 // submission - notifies every provider on the roster to sign in with their
 // own Azure account. outputOwnerUsername attributes the resulting
@@ -238,6 +275,22 @@ export async function getSessionContract(sessionId, token) {
   const data = await parseJsonSafe(res);
   if (!res.ok || data?.status === "FAILED") {
     throw buildHttpError(res, data, "Failed to fetch session contract");
+  }
+  return data;
+}
+
+// Output owner: read back the contract for one specific project (a session
+// can have several projects now - draft, final, and any "Start Again"
+// restarts each mint their own project_id/contract).
+export async function getContractByProject(projectId, token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/contract/by-project/${encodeURIComponent(projectId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (res.status === 404) return null;
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to fetch project contract");
   }
   return data;
 }

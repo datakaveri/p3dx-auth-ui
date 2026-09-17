@@ -31,13 +31,17 @@ export async function getVmProvisioningToken(role, token) {
 }
 
 // Kicks off fully automated VM creation on the backend (device-code Azure
-// login + Terraform). Returns immediately; progress arrives over
-// subscribeToVmProvisioning below.
-export async function triggerAutoProvision(role, token, vmName) {
+// login + Terraform). Returns immediately (the response includes a per-run
+// `token` identifying this run - see subscribeToVmProvisioning/
+// downloadVmPrivateKey); progress arrives over subscribeToVmProvisioning
+// below. runKey identifies the caller's own instance (e.g. one
+// VmProvisioningPanel mount) so a duplicate call for it doesn't spawn a
+// second `az login` - distinct runKeys run fully concurrently.
+export async function triggerAutoProvision(role, token, vmName, runKey, submissionId = null) {
   const res = await fetch(`${BACKEND_URL}/p3dx/vm-provisioning/auto-create`, {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify({ role, vmName }),
+    body: JSON.stringify({ role, vmName, runKey, submissionId }),
   });
   const data = await parseJsonSafe(res);
   if (!res.ok || data?.status === "FAILED") {
@@ -46,10 +50,11 @@ export async function triggerAutoProvision(role, token, vmName) {
   return data;
 }
 
-// Downloads the SSH private key generated for the caller's most recent
-// auto-created VM (one-time — the backend clears it after this succeeds).
-export async function downloadVmPrivateKey(token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/vm-provisioning/private-key`, {
+// Downloads the SSH private key generated for one specific auto-created VM
+// run, identified by runToken (the `token` returned from triggerAutoProvision
+// above) — one-time, the backend clears it after this succeeds.
+export async function downloadVmPrivateKey(token, runToken) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/vm-provisioning/private-key?token=${encodeURIComponent(runToken)}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {
@@ -67,14 +72,18 @@ export async function downloadVmPrivateKey(token) {
   URL.revokeObjectURL(url);
 }
 
-// Live VM-provisioning updates for this username+role (a participant can have
-// a session in flight for both roles at once, so role scopes which one's
-// progress this subscribes to). Returns an unsubscribe function. onUpdate
-// receives { status, events } each time deploy.sh reports a new step.
-export function subscribeToVmProvisioning(username, role, onUpdate) {
-  const es = new EventSource(
-    `${BACKEND_URL}/p3dx/vm-provisioning/stream?username=${encodeURIComponent(username)}&role=${encodeURIComponent(role)}`
-  );
+// Live VM-provisioning updates. Pass { runToken } to track one specific run
+// unambiguously (what triggerAutoProvision's response gives you - use this
+// whenever multiple runs might be in flight at once); pass { username, role }
+// for the older "most recent run for this username+role" behavior, kept for
+// the manual deploy.sh flow which never has a run token. Returns an
+// unsubscribe function. onUpdate receives { status, events } each time a new
+// step is reported.
+export function subscribeToVmProvisioning({ runToken, username, role }, onUpdate) {
+  const query = runToken
+    ? `token=${encodeURIComponent(runToken)}`
+    : `username=${encodeURIComponent(username)}&role=${encodeURIComponent(role)}`;
+  const es = new EventSource(`${BACKEND_URL}/p3dx/vm-provisioning/stream?${query}`);
   es.onmessage = (evt) => {
     try {
       onUpdate(JSON.parse(evt.data));
