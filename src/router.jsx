@@ -10,6 +10,7 @@ import FlOrchestrator from "./pages/FlOrchestrator";
 import FL_Orchestrator from "./pages/fl_orchestrator/FL_Orchestrator";
 import AdminDashboard from "./pages/AdminDashboard";
 import ServicesLanding from "./pages/ServicesLanding";
+import ProjectsList from "./pages/ProjectsList";
 import PolicyForm from "./pages/PolicyForm";
 import InfraPolicyForm from "./pages/InfraPolicyForm";
 import MyInfraDashboard from "./pages/MyInfraDashboard";
@@ -33,6 +34,7 @@ export const router = createBrowserRouter([
       { index: true, element: <div /> },
       { path: "role-request", element: <RoleRequest /> },
       { path: "services", element: <ServicesLanding /> },
+      { path: "projects", element: <ProjectsList /> },
       { path: "services/anon", element: <UserDashboard /> },
       { path: "services/fl", element: <FederatedLearningDashboard /> },
       { path: "services/fl/federated-learning", element: <FederatedLearning /> },

@@ -59,6 +59,11 @@ const ICONS = {
       <rect x="14" y="14" width="7" height="7" rx="1" />
     </NavIcon>
   ),
+  project: (
+    <NavIcon>
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+    </NavIcon>
+  ),
   manage: (
     <NavIcon>
       <line x1="4" y1="21" x2="4" y2="14" />
@@ -197,12 +202,20 @@ export default function AppShell() {
 
     const path = location.pathname;
     if (isOrchestrator) {
-      if (!path.startsWith("/app/orchestrator")) {
+      if (!path.startsWith("/app/orchestrator") && !path.startsWith("/app/projects")) {
         navigate("/app/orchestrator", { replace: true });
       }
       return;
     }
     if (path.startsWith("/app/orchestrator")) {
+      navigate("/app/services", { replace: true });
+      return;
+    }
+
+    // Projects (see the sidebar link below) isn't for data providers - they
+    // aren't shown project_id/roster info, only output owners and the
+    // fl-orchestrator (handled above) are.
+    if (hasDataProvider && path.startsWith("/app/projects")) {
       navigate("/app/services", { replace: true });
       return;
     }
@@ -215,7 +228,7 @@ export default function AppShell() {
     if (!isAdmin && path.startsWith("/app/admin")) {
       navigate("/app/services", { replace: true });
     }
-  }, [user, isAdmin, isOrchestrator, location.pathname, navigate]);
+  }, [user, isAdmin, isOrchestrator, hasDataProvider, location.pathname, navigate]);
 
   if (loading || !user) {
     return (
@@ -264,6 +277,16 @@ export default function AppShell() {
                 {ICONS.services}
                 <span>Services</span>
               </a>
+              {!hasDataProvider ? (
+                <a
+                  className={location.pathname.startsWith("/app/projects") ? "sidebar-link sidebar-link-active" : "sidebar-link"}
+                  href="/app/projects"
+                  onMouseMove={trackGlow}
+                >
+                  {ICONS.project}
+                  <span>Projects</span>
+                </a>
+              ) : null}
               {/* Role-exclusive management dashboards ("My Infrastructure" /
                   "My Datasets") — migrated here from a UserDashboard.jsx
                   action card so they're reachable regardless of which
@@ -309,7 +332,19 @@ export default function AppShell() {
       </aside>
 
       <main className="app-main">
-        <div key={location.pathname} className="page-enter">
+        {/* page-enter's entrance animation ends on transform: translateY(0)
+            (see global.css) - animation-fill-mode: forwards keeps that
+            computed value applied indefinitely, which (since it's a non-none
+            transform) silently makes this div a containing block for any
+            position:fixed descendant (e.g. a modal overlay), centering it
+            relative to this div's box instead of the viewport. Dropping the
+            class once the animation finishes clears that up while keeping
+            the entrance effect intact. */}
+        <div
+          key={location.pathname}
+          className="page-enter"
+          onAnimationEnd={(e) => e.currentTarget.classList.remove("page-enter")}
+        >
           <Outlet context={{ user, token, isAdmin, refreshUser }} />
         </div>
       </main>
