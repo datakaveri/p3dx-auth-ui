@@ -34,7 +34,7 @@ export async function submitTeeContractSignature(token, contractId, { notificati
 }
 
 // Signs the contract hash string in the browser with the provider's
-// PKCS#8 PEM private key (the file from "Download private key"), using
+// PKCS#8 PEM private key (the file saved by "Generate Key Pair"), using
 // RSASSA-PKCS1-v1_5 / SHA-256 — what gov_layer's VerifyContractHashSignature
 // checks. The key is only read locally; it is never sent anywhere.
 export async function signContractHash(privateKeyPem, contractHash) {

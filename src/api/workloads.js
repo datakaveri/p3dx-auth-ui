@@ -115,7 +115,7 @@ export async function getTeeSessionStatus(token, sessionId) {
 
 // Fetches the anonymized output of a completed TEE session and triggers a
 // browser file-save, same blob + temporary-anchor pattern as
-// api/keyPair.js's downloadPrivateKey.
+// api/keyPair.js's private-key save fallback.
 export async function downloadTeeSessionOutput(token, sessionId) {
   const res = await fetch(`${BACKEND_URL}/p3dx/workloads/tee-sessions/${encodeURIComponent(sessionId)}/output`, {
     headers: { Authorization: `Bearer ${token}` },
