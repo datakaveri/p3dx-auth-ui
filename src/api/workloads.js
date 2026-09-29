@@ -32,6 +32,22 @@ export async function runWorkload(token, { datasetId, applicationId }) {
   return data;
 }
 
+// Which data providers have signed a generated TEE contract (re-verified by
+// gov_layer against each provider's Keycloak public key), plus all_signed.
+export async function getTeeContractSignatures(token, contractId) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/workloads/tee-contracts/${encodeURIComponent(contractId)}/signatures`, {
+    headers: authHeaders(token),
+  });
+
+  const data = await parseJsonSafe(res);
+
+  if (!res.ok || data?.status === "FAILED") {
+    throw new Error(data?.message || data?.error || `Signature status failed (${res.status})`);
+  }
+
+  return data;
+}
+
 // Builds and returns a contract for display only — does not submit/deploy it.
 // datasets is one or more { datasetId, datasetName } pairs — datasetId is
 // each dataset's real item_id (see WorkloadForm.jsx's dataset picker);
@@ -62,11 +78,13 @@ export async function previewContract(token, { datasets, technique, infraIds }) 
 // getTeeSessionStatus for progress, then call downloadTeeSessionOutput once
 // complete. datasetUrl must be an https URL the CVM's managed identity can
 // read.
-export async function startTeeSession(token, { datasetUrl, datasetId, datasetName }) {
+// contractId is the generated contract's contract_id — gov_layer refuses to
+// start a TEE unless every data provider on it has signed.
+export async function startTeeSession(token, { datasetUrl, datasetId, datasetName, contractId }) {
   const res = await fetch(`${BACKEND_URL}/p3dx/workloads/tee-sessions`, {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify({ datasetUrl, datasetId, datasetName }),
+    body: JSON.stringify({ datasetUrl, datasetId, datasetName, contractId }),
   });
 
   const data = await parseJsonSafe(res);

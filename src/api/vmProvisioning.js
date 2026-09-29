@@ -1,4 +1,4 @@
-import { BACKEND_URL } from "../config";
+import { ORCHESTRATOR_URL } from "../config";
 
 function authHeaders(token) {
   return {
@@ -18,7 +18,7 @@ async function parseJsonSafe(res) {
 // Mints a token identifying this logged-in user so their local
 // terraform/participant-vm/deploy.sh run can report progress back here.
 export async function getVmProvisioningToken(role, token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/vm-provisioning/token`, {
+  const res = await fetch(`${ORCHESTRATOR_URL}/p3dx/vm-provisioning/token`, {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({ role }),
@@ -38,7 +38,7 @@ export async function getVmProvisioningToken(role, token) {
 // VmProvisioningPanel mount) so a duplicate call for it doesn't spawn a
 // second `az login` - distinct runKeys run fully concurrently.
 export async function triggerAutoProvision(role, token, vmName, runKey, submissionId = null) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/vm-provisioning/auto-create`, {
+  const res = await fetch(`${ORCHESTRATOR_URL}/p3dx/vm-provisioning/auto-create`, {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({ role, vmName, runKey, submissionId }),
@@ -54,7 +54,7 @@ export async function triggerAutoProvision(role, token, vmName, runKey, submissi
 // run, identified by runToken (the `token` returned from triggerAutoProvision
 // above) — one-time, the backend clears it after this succeeds.
 export async function downloadVmPrivateKey(token, runToken) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/vm-provisioning/private-key?token=${encodeURIComponent(runToken)}`, {
+  const res = await fetch(`${ORCHESTRATOR_URL}/p3dx/vm-provisioning/private-key?token=${encodeURIComponent(runToken)}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {
@@ -83,7 +83,7 @@ export function subscribeToVmProvisioning({ runToken, username, role }, onUpdate
   const query = runToken
     ? `token=${encodeURIComponent(runToken)}`
     : `username=${encodeURIComponent(username)}&role=${encodeURIComponent(role)}`;
-  const es = new EventSource(`${BACKEND_URL}/p3dx/vm-provisioning/stream?${query}`);
+  const es = new EventSource(`${ORCHESTRATOR_URL}/p3dx/vm-provisioning/stream?${query}`);
   es.onmessage = (evt) => {
     try {
       onUpdate(JSON.parse(evt.data));

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import {
   previewContract, startTeeSession, getTeeSessionStatus,
-  downloadTeeSessionOutput, terminateTeeSession,
+  downloadTeeSessionOutput, terminateTeeSession, getTeeContractSignatures,
 } from "../api/workloads";
 import {
   listAvailableDatasets, listAvailableInfrastructure, getInfrastructureDetails,
@@ -186,6 +186,12 @@ export default function WorkloadForm() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isTerminating, setIsTerminating] = useState(false);
   const [downloadError, setDownloadError] = useState(null);
+  // TEE only: each data provider must sign the generated contract's hash
+  // before a run is allowed (gov_layer enforces this too).
+  const [signatureStatus, setSignatureStatus] = useState(null);
+  const [signatureError, setSignatureError] = useState(null);
+  const needsSignatures = technique === "TEE";
+  const allSigned = !needsSignatures || signatureStatus?.all_signed === true;
 
   // Filtered lists
   const filteredDatasetList = useMemo(() => {
@@ -254,6 +260,8 @@ export default function WorkloadForm() {
     if (isSMPCTechnique && selectedInfraIds.length !== 2) return;
     setError(null);
     setGeneratedContract(null);
+    setSignatureStatus(null);
+    setSignatureError(null);
     setTeeSession(null);
     setDownloadError(null);
     setIsGenerating(true);
@@ -291,6 +299,7 @@ export default function WorkloadForm() {
         // one, matching datasetUrl's own "first dataset" fallback above.
         datasetId: selectedDatasetIds[0],
         datasetName: selectedDatasets[0]?.name,
+        contractId: generatedContract?.contract_id,
       });
       setTeeSession({ sessionId: res.sessionId, status: res.status || "provisioning", error: null });
     } catch (err) {
@@ -325,6 +334,33 @@ export default function WorkloadForm() {
       setIsTerminating(false);
     }
   };
+
+  // TEE: poll which data providers have signed the generated contract, until
+  // all have (gov_layer re-verifies each against the provider's Keycloak key).
+  const contractIdForSignatures = needsSignatures ? generatedContract?.contract_id : null;
+  useEffect(() => {
+    if (!contractIdForSignatures || !token) return undefined;
+    let cancelled = false;
+    let timer;
+    const poll = async () => {
+      try {
+        const status = await getTeeContractSignatures(token, contractIdForSignatures);
+        if (cancelled) return;
+        setSignatureStatus(status);
+        setSignatureError(null);
+        if (status?.all_signed) return;
+      } catch (err) {
+        if (cancelled) return;
+        setSignatureError(err.message || "Failed to check signatures");
+      }
+      timer = setTimeout(poll, 5000);
+    };
+    poll();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [contractIdForSignatures, token]);
 
   // Poll gov_layer for the session's status while it's still in flight.
   useEffect(() => {
@@ -661,6 +697,32 @@ export default function WorkloadForm() {
               <div style={{ marginTop: 14, borderTop: "1px solid var(--border-color)", paddingTop: 14 }}>
                 {(!teeSession || teeSession.status === "failed") && (
                   <>
+                    {needsSignatures && (
+                      <div style={{ marginBottom: 10, fontSize: 13 }}>
+                        <div className="label" style={{ marginBottom: 4 }}>Data-provider signatures</div>
+                        {signatureError ? (
+                          <div className="error-message" style={{ fontSize: 13 }}>{signatureError}</div>
+                        ) : !signatureStatus ? (
+                          <div style={{ color: "var(--text-light)" }}>Checking signatures…</div>
+                        ) : (
+                          <>
+                            {(signatureStatus.parties || []).map(p => (
+                              <div key={`${p.provider_id}-${p.dataset_name}`} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                                <span>{p.provider_id} · {p.dataset_name}</span>
+                                <span style={{ color: p.valid ? "var(--success, #2e7d32)" : "var(--text-light)" }}>
+                                  {p.valid ? "Signed ✓" : p.signed ? `Invalid: ${p.error}` : "Waiting…"}
+                                </span>
+                              </div>
+                            ))}
+                            {!signatureStatus.all_signed && (
+                              <div style={{ marginTop: 6, color: "var(--text-light)" }}>
+                                The TEE can't run until every data provider has signed this contract.
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
                     {!datasetUrl && (
                       <div className="error-message" style={{ marginBottom: 10, fontSize: 13 }}>
                         This dataset's policy has no data URL set — go to Set Policy and add one before running.
@@ -670,7 +732,7 @@ export default function WorkloadForm() {
                       type="button"
                       className="btn btn-primary"
                       style={{ width: "100%" }}
-                      disabled={isStartingRun || !datasetUrl}
+                      disabled={isStartingRun || !datasetUrl || !allSigned}
                       onClick={handleRunTee}
                     >
                       {isStartingRun ? (
