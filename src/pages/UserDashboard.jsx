@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
-import { getKeyPairStatus, downloadPrivateKey } from "../api/keyPair";
+import { getKeyPairStatus, generateAndRegisterKeyPair } from "../api/keyPair";
 
 export default function UserDashboard() {
   const { user, token } = useOutletContext();
@@ -12,14 +12,15 @@ export default function UserDashboard() {
   const hasDataProvider = roles.includes("data-provider");
   const hasInfraProvider = roles.includes("infra-provider");
 
-  // data-provider and infra-provider each get their own key pair provisioned
-  // on approval (see keyPair.service.js KEY_PAIR_ROLES) but a user only ever
-  // holds one of the two in practice — pick whichever applies for the
-  // status/download calls below.
+  // data-provider and infra-provider generate their key pair here in the
+  // browser (see api/keyPair.js; KEY_PAIR_ROLES in keyPair.service.js) — the
+  // private key is saved to their disk and only the public key is sent to the
+  // platform. A user only ever holds one of the two roles in practice, so pick
+  // whichever applies for the status/generate calls below.
   const keyRoleName = hasDataProvider ? "data-provider" : hasInfraProvider ? "infra-provider" : null;
 
   const [keyStatus, setKeyStatus] = useState(null);
-  const [keyDownloading, setKeyDownloading] = useState(false);
+  const [keyGenerating, setKeyGenerating] = useState(false);
   const [keyError, setKeyError] = useState(null);
 
   useEffect(() => {
@@ -35,16 +36,25 @@ export default function UserDashboard() {
     };
   }, [keyRoleName, token]);
 
-  const handleDownloadKey = async () => {
+  const handleGenerateKey = async () => {
     if (!keyRoleName) return;
+    if (
+      keyStatus?.exists &&
+      !window.confirm(
+        "Regenerating replaces your registered public key. Your current private key file will no longer work for new signatures. Continue?"
+      )
+    ) {
+      return;
+    }
     setKeyError(null);
-    setKeyDownloading(true);
+    setKeyGenerating(true);
     try {
-      await downloadPrivateKey(token, keyRoleName);
+      await generateAndRegisterKeyPair(token, keyRoleName);
+      setKeyStatus(s => ({ ...(s || {}), exists: true }));
     } catch (err) {
-      setKeyError(err?.message || "Download failed");
+      setKeyError(err?.message || "Key generation failed");
     } finally {
-      setKeyDownloading(false);
+      setKeyGenerating(false);
     }
   };
   const isSMPC = location.pathname.includes("/services/smpc");
@@ -161,19 +171,20 @@ export default function UserDashboard() {
             </button>
           ) : null}
 
-          {keyRoleName && keyStatus?.exists ? (
+          {keyRoleName && keyStatus ? (
             <button
               className="action-card"
               type="button"
-              onClick={handleDownloadKey}
-              disabled={keyDownloading}
+              onClick={handleGenerateKey}
+              disabled={keyGenerating}
             >
               <div className="action-title">
-                {keyDownloading ? "Downloading..." : "Download Private Key"}
+                {keyGenerating ? "Generating..." : keyStatus.exists ? "Regenerate Key Pair" : "Generate Key Pair"}
               </div>
               <div className="action-description">
-                Download your {keyRoleName} private key
-                {keyStatus.download_count > 0 ? ` (downloaded ${keyStatus.download_count} time${keyStatus.download_count === 1 ? "" : "s"} so far)` : ""}.
+                {keyStatus.exists
+                  ? `Replace your ${keyRoleName} key pair. The new private key is saved to your device only.`
+                  : `Create your ${keyRoleName} key pair. The private key is saved to your device only — keep it safe, the platform cannot recover it.`}
               </div>
             </button>
           ) : null}
