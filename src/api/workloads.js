@@ -32,10 +32,10 @@ export async function runWorkload(token, { datasetId, applicationId }) {
   return data;
 }
 
-// Which data providers have signed a generated TEE contract (re-verified by
-// gov_layer against each provider's Keycloak public key), plus all_signed.
-export async function getTeeContractSignatures(token, contractId) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/workloads/tee-contracts/${encodeURIComponent(contractId)}/signatures`, {
+// Which data providers have signed a generated TEE/SMPC contract (re-verified
+// by gov_layer against each provider's Keycloak public key), plus all_signed.
+export async function getContractSignatures(token, contractId) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/workloads/contracts/${encodeURIComponent(contractId)}/signatures`, {
     headers: authHeaders(token),
   });
 

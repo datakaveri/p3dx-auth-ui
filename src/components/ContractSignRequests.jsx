@@ -1,12 +1,18 @@
 import { useEffect, useState } from "react";
-import { listTeeSignRequests, signContractHash, submitTeeContractSignature } from "../api/teeContracts";
+import {
+  listContractSignRequests, signContractHash, submitContractSignature, verifyGovernanceSignature,
+} from "../api/contractSigning";
 
-// Data-provider panel: TEE contracts generated against one of the provider's
-// datasets. gov_layer hashes each contract and sends the hash + contract here;
-// the provider picks their private key file, the hash is signed in the
-// browser, and only the signature goes back to the governance layer.
-export default function TeeContractSignRequests({ token }) {
+// Data-provider panel: contracts (FL final roster, TEE, SMPC) that use one of
+// the provider's datasets. gov_layer hashes each contract, signs the hash with
+// its own private key, and sends hash + governance signature + governance
+// public key + contract here. The governance signature is checked in the
+// browser first; only then can the provider pick their private key file, the
+// hash is signed in the browser, and only the signature goes back.
+export default function ContractSignRequests({ token }) {
   const [requests, setRequests] = useState([]);
+  // notification id -> true/false once the governance signature is checked
+  const [govVerified, setGovVerified] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [expanded, setExpanded] = useState(null);
@@ -19,7 +25,13 @@ export default function TeeContractSignRequests({ token }) {
     setLoading(true);
     setError(null);
     try {
-      setRequests(await listTeeSignRequests(token));
+      const list = await listContractSignRequests(token);
+      setRequests(list);
+      const checks = await Promise.all(list.map(async n => {
+        const p = n.payload || {};
+        return [n.id, await verifyGovernanceSignature(p.governance_public_key, p.contract_hash, p.governance_signature)];
+      }));
+      setGovVerified(Object.fromEntries(checks));
     } catch (e) {
       setError(e?.message || "Failed to load contracts to sign");
     } finally {
@@ -41,9 +53,15 @@ export default function TeeContractSignRequests({ token }) {
     setBusyId(n.id);
     setRowMessage(m => ({ ...m, [n.id]: null }));
     try {
+      // Step 1: the hash must carry a valid governance signature.
+      const govOk = await verifyGovernanceSignature(p.governance_public_key, p.contract_hash, p.governance_signature);
+      if (!govOk) {
+        throw new Error("Governance signature on this contract hash did not verify — not signing.");
+      }
+      // Step 2: sign the same hash with the provider's own private key.
       const pem = await file.text();
       const signature = await signContractHash(pem, p.contract_hash);
-      const res = await submitTeeContractSignature(token, p.contract_id, {
+      const res = await submitContractSignature(token, p.contract_id, {
         notificationId: n.id,
         contractHash: p.contract_hash,
         signature,
@@ -62,9 +80,9 @@ export default function TeeContractSignRequests({ token }) {
 
   return (
     <div style={{ marginBottom: "24px" }}>
-      <h3 className="section-title" style={{ marginBottom: "4px" }}>TEE Contracts to Sign</h3>
+      <h3 className="section-title" style={{ marginBottom: "4px" }}>Contracts to Sign</h3>
       <div style={{ color: "var(--text-light)", fontSize: "14px", marginBottom: "12px" }}>
-        Contracts generated using your datasets. Sign the contract hash with your private key.
+        Contracts that use your datasets. The governance layer's signature is checked first; then sign the contract hash with your private key.
       </div>
 
       {error ? <div className="error-message">{error}</div> : null}
@@ -75,8 +93,10 @@ export default function TeeContractSignRequests({ token }) {
             <thead>
               <tr>
                 <th>Contract</th>
+                <th>Service</th>
                 <th>Requested by</th>
                 <th>Contract hash</th>
+                <th>Governance signature</th>
                 <th>Status</th>
                 <th style={{ width: "320px" }}>Actions</th>
               </tr>
@@ -84,22 +104,29 @@ export default function TeeContractSignRequests({ token }) {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="muted">Loading...</td>
+                  <td colSpan={7} className="muted">Loading...</td>
                 </tr>
               ) : requests.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="muted">No contracts waiting for your signature</td>
+                  <td colSpan={7} className="muted">No contracts waiting for your signature</td>
                 </tr>
               ) : (
                 requests.map(n => {
                   const p = n.payload || {};
                   const signed = n.response === "accepted";
                   const msg = rowMessage[n.id];
+                  const gov = govVerified[n.id];
                   return [
                     <tr key={n.id}>
                       <td>{p.contract_id}</td>
+                      <td>{p.technique || "—"}</td>
                       <td>{n.sender_username}</td>
                       <td style={{ fontFamily: "monospace", fontSize: "12px", wordBreak: "break-all" }}>{p.contract_hash}</td>
+                      <td>
+                        <span className="table-badge table-badge--neutral">
+                          {gov === undefined ? "Checking…" : gov ? "Verified ✓" : "Invalid ✗"}
+                        </span>
+                      </td>
                       <td>
                         <span className="table-badge table-badge--neutral">{signed ? "Signed" : "Awaiting signature"}</span>
                       </td>
@@ -125,7 +152,7 @@ export default function TeeContractSignRequests({ token }) {
                                 className="btn btn-primary"
                                 style={{ width: "auto" }}
                                 type="button"
-                                disabled={busyId === n.id}
+                                disabled={busyId === n.id || gov !== true}
                                 onClick={() => sign(n)}
                               >
                                 {busyId === n.id ? "Signing..." : "Sign & send"}
@@ -140,7 +167,7 @@ export default function TeeContractSignRequests({ token }) {
                     </tr>,
                     expanded === n.id ? (
                       <tr key={`${n.id}-contract`}>
-                        <td colSpan={5}>
+                        <td colSpan={7}>
                           <pre style={{ maxHeight: "360px", overflow: "auto", fontSize: "12px", margin: 0, whiteSpace: "pre-wrap" }}>
                             {JSON.stringify(p.contract, null, 2)}
                           </pre>

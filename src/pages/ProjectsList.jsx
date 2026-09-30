@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { getMyProjects, restartFlSession, getContractByProject } from "../api/auth";
+import { getMyProjects, restartFlSession, getContractByProject, getSessionContractSignatures, queueRestartedFlSession } from "../api/auth";
 import ContractPreviewModal from "../components/ContractPreviewModal";
+import ContractSignatureStatus from "../components/ContractSignatureStatus";
 
 // Projects page (see AppShell.jsx sidebar "Projects" link, under "Services").
 // fl-orchestrator sees every project; anyone else sees only their own (as
@@ -17,6 +18,12 @@ export default function ProjectsList() {
   const [restartingId, setRestartingId] = useState(null);
   const [restartError, setRestartError] = useState(null);
   const [restartedId, setRestartedId] = useState(null);
+  // The restarted project awaiting signatures on its new contract:
+  // { projectId, sessionId, usernames } - its "Start FL Session" unlocks on all_signed.
+  const [pendingRestart, setPendingRestart] = useState(null);
+  const [restartAllSigned, setRestartAllSigned] = useState(false);
+  const [queueingRestart, setQueueingRestart] = useState(false);
+  const [restartQueued, setRestartQueued] = useState(false);
   const [contractLoadingId, setContractLoadingId] = useState(null);
   const [contractError, setContractError] = useState(null);
   const [viewedContract, setViewedContract] = useState(null);
@@ -47,6 +54,13 @@ export default function ProjectsList() {
     try {
       await restartFlSession(project.session_id, project.data_provider_usernames || [], token);
       setRestartedId(project.project_id);
+      setRestartAllSigned(false);
+      setRestartQueued(false);
+      setPendingRestart({
+        projectId: project.project_id,
+        sessionId: project.session_id,
+        usernames: project.data_provider_usernames || [],
+      });
       // The restart creates a new project (see /gov/restart-fl-session), so
       // refresh the list to show it rather than leaving the stale one on screen.
       const res = await getMyProjects(token);
@@ -55,6 +69,20 @@ export default function ProjectsList() {
       setRestartError(`Project ${project.project_id}: ${e.message}`);
     } finally {
       setRestartingId(null);
+    }
+  };
+
+  const handleQueueRestart = async () => {
+    if (!pendingRestart) return;
+    setQueueingRestart(true);
+    setRestartError(null);
+    try {
+      await queueRestartedFlSession(pendingRestart.sessionId, pendingRestart.usernames, token);
+      setRestartQueued(true);
+    } catch (e) {
+      setRestartError(`Project ${pendingRestart.projectId}: ${e.message}`);
+    } finally {
+      setQueueingRestart(false);
     }
   };
 
@@ -137,12 +165,32 @@ export default function ProjectsList() {
                         {restartingId === p.project_id
                           ? "Starting..."
                           : restartedId === p.project_id
-                          ? "Requested"
+                          ? "Sent for signing"
                           : "Start Again"}
                       </button>
                     )}
                   </div>
                 </div>
+                {!isOrchestrator && pendingRestart?.projectId === p.project_id && (
+                  <div style={{ marginTop: "8px" }}>
+                    <ContractSignatureStatus
+                      key={`${pendingRestart.sessionId}:${pendingRestart.projectId}`}
+                      pollKey={`${pendingRestart.sessionId}:${pendingRestart.projectId}`}
+                      fetchStatus={() => getSessionContractSignatures(pendingRestart.sessionId, token)}
+                      onStatus={(s) => setRestartAllSigned(s?.all_signed === true)}
+                      blockedText="The FL session can't start until every data provider has signed the new contract."
+                    />
+                    <button
+                      className="btn btn-primary"
+                      type="button"
+                      style={{ width: "auto" }}
+                      disabled={!restartAllSigned || queueingRestart || restartQueued}
+                      onClick={handleQueueRestart}
+                    >
+                      {queueingRestart ? "Requesting..." : restartQueued ? "Requested" : "Start FL Session"}
+                    </button>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
