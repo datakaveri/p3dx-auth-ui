@@ -198,9 +198,45 @@ export async function queueFlSession(submissionId, participatingProviders, vmNam
   return data;
 }
 
-// Output owner: "Start Again" on a project (ProjectsList.jsx) - re-queues the
-// same session for the fl-orchestrator with the same data-provider roster,
-// without redoing invite/accept.
+// Signing status of a session's current contract (for FL, the final roster
+// contract): which data providers have signed its hash, plus all_signed.
+// "Start FL Session" stays disabled until all_signed is true.
+export async function getSessionContractSignatures(submissionId, token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/contracts/by-session/${encodeURIComponent(submissionId)}/signatures`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to check contract signatures");
+  }
+  return data;
+}
+
+// Output owner: second half of "Start Again" - once every provider has signed
+// the restart's new contract, queue the session for the fl-orchestrator.
+export async function queueRestartedFlSession(submissionId, providerUsernames, token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/gov/restart-fl-session/queue`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      submission_id: submissionId,
+      provider_usernames: providerUsernames,
+    }),
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to start FL session");
+  }
+  return data;
+}
+
+// Output owner: "Start Again" on a project (ProjectsList.jsx) - builds a new
+// contract for the same session and data-provider roster (without redoing
+// invite/accept) and sends it to every provider to sign. The session is
+// queued afterwards via queueRestartedFlSession, once all have signed.
 export async function restartFlSession(submissionId, providerUsernames, token) {
   const res = await fetch(`${BACKEND_URL}/p3dx/gov/restart-fl-session`, {
     method: "POST",
