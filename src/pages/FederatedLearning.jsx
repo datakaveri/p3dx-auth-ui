@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { BACKEND_URL } from '../config';
-import { notifyProviders, getNotificationResponses, notifyRoster, getSessionContract, getMyNotifications, queueFlSession } from '../api/auth';
+import { notifyProviders, getNotificationResponses, notifyRoster, getSessionContract, getMyNotifications, queueFlSession, getSessionContractSignatures } from '../api/auth';
+import ContractSignatureStatus from '../components/ContractSignatureStatus';
 
 const GOVERNANCE_LAYER_URL = `${BACKEND_URL}/p3dx/form-submissions`;
 const DATA_PROVIDER_FORM_URL = `${BACKEND_URL}/p3dx/data-provider-forms`;
@@ -219,6 +220,9 @@ export default function FederatedLearning() {
   // Gates "Start FL Session" - only unlocked once the owner has sent the
   // final roster announcement to the confirmed participants.
   const [finalRosterSent, setFinalRosterSent] = useState(false);
+  // Also gates "Start FL Session": every data provider on the final roster
+  // contract must have signed its hash (polled from the governance layer).
+  const [contractAllSigned, setContractAllSigned] = useState(false);
   // The exact roster (id/username/email) sent as the final participant list -
   // kept around so "Start FL Session" can notify the same providers without
   // re-deriving the willing list.
@@ -801,7 +805,13 @@ export default function FederatedLearning() {
               <button className="btn btn-primary" style={{ width: 'auto' }} onClick={handlePushConfig} disabled={pushing}>
                 {pushing ? 'Sending...' : 'Send to Providers'}
               </button>
-              <button className="btn btn-primary" style={{ width: 'auto' }} onClick={handleStartFlSession}>
+              <button
+                className="btn btn-primary"
+                style={{ width: 'auto' }}
+                onClick={handleStartFlSession}
+                disabled={!contractAllSigned}
+                title={contractAllSigned ? undefined : 'Every data provider must sign the final roster contract first'}
+              >
                 Start FL Session
               </button>
             </div>
@@ -1340,11 +1350,13 @@ export default function FederatedLearning() {
                   type="button"
                   className="btn btn-primary"
                   onClick={handleStartFlSession}
-                  disabled={!reportSubmissionId || !finalRosterSent}
+                  disabled={!reportSubmissionId || !finalRosterSent || !contractAllSigned}
                   style={{ width: 'auto' }}
-                  title={finalRosterSent
-                    ? "Provision and launch the FL server + selected providers' clients for this submission"
-                    : 'Send the Final Roster first to unlock this'}
+                  title={!finalRosterSent
+                    ? 'Send the Final Roster first to unlock this'
+                    : !contractAllSigned
+                    ? 'Every data provider must sign the final roster contract first'
+                    : "Provision and launch the FL server + selected providers' clients for this submission"}
                 >
                   Start FL Session
                 </button>
@@ -1352,9 +1364,19 @@ export default function FederatedLearning() {
               <div className="fl-footnote">
                 Sends every selected provider a message listing who's selected and who has
                 already responded willing to participate. "Start FL Session" unlocks once
-                you've sent the Final Roster, and launches the server and every participating
+                you've sent the Final Roster and every participating provider has signed the
+                final roster contract, and launches the server and every participating
                 provider's client for this submission.
               </div>
+              {reportSubmissionId && finalRosterSent && (
+                <ContractSignatureStatus
+                  key={`${reportSubmissionId}:${finalRosterSent}`}
+                  pollKey={`${reportSubmissionId}:${finalRosterSent}`}
+                  fetchStatus={() => getSessionContractSignatures(reportSubmissionId, sessionStorage.getItem('access_token') || token)}
+                  onStatus={(s) => setContractAllSigned(s?.all_signed === true)}
+                  blockedText="The FL session can't start until every data provider has signed the final roster contract."
+                />
+              )}
               {distributeResult && (
                 <div className={`fl-result-banner ${distributeResult.ok ? 'fl-result-banner--ok' : 'fl-result-banner--error'}`}>
                   {distributeResult.text}

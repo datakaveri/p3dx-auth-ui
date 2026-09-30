@@ -13,7 +13,6 @@ export default function ContractSignatureStatus({ fetchStatus, pollKey, onStatus
     if (!pollKey) return undefined;
     let cancelled = false;
     let timer;
-    setStatus(null);
     const poll = async () => {
       try {
         const s = await fetchStatus();
@@ -34,8 +33,8 @@ export default function ContractSignatureStatus({ fetchStatus, pollKey, onStatus
       cancelled = true;
       clearTimeout(timer);
     };
-    // fetchStatus/onStatus are recreated each render; pollKey drives polling.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // fetchStatus/onStatus are recreated each render; pollKey drives polling
+    // (parents also pass it as `key`, so a new contract starts from blank).
   }, [pollKey]);
 
   return (

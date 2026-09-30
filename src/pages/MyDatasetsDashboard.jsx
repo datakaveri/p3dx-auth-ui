@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { deleteDatasetPolicy, listMyDatasetPolicies } from "../api/policies";
 import Modal from "../components/Modal";
-import TeeContractSignRequests from "../components/TeeContractSignRequests";
+import ContractSignRequests from "../components/ContractSignRequests";
 
 // "My Datasets" dashboard — the data-provider counterpart to
 // MyInfraDashboard.jsx, same shape: list the data-provider's own dataset
@@ -126,7 +126,7 @@ export default function MyDatasetsDashboard() {
         </div>
       </div>
 
-      {hasDataProvider ? <TeeContractSignRequests token={token} /> : null}
+      {hasDataProvider ? <ContractSignRequests token={token} /> : null}
 
       {error ? <div className="error-message">{error}</div> : null}
 

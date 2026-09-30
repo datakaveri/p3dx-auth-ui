@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import {
   previewContract, startTeeSession, getTeeSessionStatus,
-  downloadTeeSessionOutput, terminateTeeSession, getTeeContractSignatures,
+  downloadTeeSessionOutput, terminateTeeSession, getContractSignatures,
 } from "../api/workloads";
 import {
   listAvailableDatasets, listAvailableInfrastructure, getInfrastructureDetails,
@@ -186,11 +186,11 @@ export default function WorkloadForm() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isTerminating, setIsTerminating] = useState(false);
   const [downloadError, setDownloadError] = useState(null);
-  // TEE only: each data provider must sign the generated contract's hash
+  // TEE and SMPC: each data provider must sign the generated contract's hash
   // before a run is allowed (gov_layer enforces this too).
   const [signatureStatus, setSignatureStatus] = useState(null);
   const [signatureError, setSignatureError] = useState(null);
-  const needsSignatures = technique === "TEE";
+  const needsSignatures = technique === "TEE" || technique === "SMPC";
   const allSigned = !needsSignatures || signatureStatus?.all_signed === true;
 
   // Filtered lists
@@ -335,7 +335,7 @@ export default function WorkloadForm() {
     }
   };
 
-  // TEE: poll which data providers have signed the generated contract, until
+  // TEE/SMPC: poll which data providers have signed the generated contract, until
   // all have (gov_layer re-verifies each against the provider's Keycloak key).
   const contractIdForSignatures = needsSignatures ? generatedContract?.contract_id : null;
   useEffect(() => {
@@ -344,7 +344,7 @@ export default function WorkloadForm() {
     let timer;
     const poll = async () => {
       try {
-        const status = await getTeeContractSignatures(token, contractIdForSignatures);
+        const status = await getContractSignatures(token, contractIdForSignatures);
         if (cancelled) return;
         setSignatureStatus(status);
         setSignatureError(null);
@@ -716,7 +716,7 @@ export default function WorkloadForm() {
                             ))}
                             {!signatureStatus.all_signed && (
                               <div style={{ marginTop: 6, color: "var(--text-light)" }}>
-                                The TEE can't run until every data provider has signed this contract.
+                                This can't run until every data provider has signed this contract.
                               </div>
                             )}
                           </>
