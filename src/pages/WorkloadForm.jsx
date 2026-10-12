@@ -191,7 +191,7 @@ export default function WorkloadForm() {
   const [signatureStatus, setSignatureStatus] = useState(null);
   const [signatureError, setSignatureError] = useState(null);
   const needsSignatures = technique === "TEE" || technique === "SMPC";
-  const allSigned = !needsSignatures || signatureStatus?.all_signed === true;
+  const allSigned = !needsSignatures || signatureStatus?.tee === "can run";
 
   // Filtered lists
   const filteredDatasetList = useMemo(() => {
@@ -348,7 +348,7 @@ export default function WorkloadForm() {
         if (cancelled) return;
         setSignatureStatus(status);
         setSignatureError(null);
-        if (status?.all_signed) return;
+        if (status?.tee === "can run") return;
       } catch (err) {
         if (cancelled) return;
         setSignatureError(err.message || "Failed to check signatures");
@@ -706,15 +706,10 @@ export default function WorkloadForm() {
                           <div style={{ color: "var(--text-light)" }}>Checking signatures…</div>
                         ) : (
                           <>
-                            {(signatureStatus.parties || []).map(p => (
-                              <div key={`${p.provider_id}-${p.dataset_name}`} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                                <span>{p.provider_id} · {p.dataset_name}</span>
-                                <span style={{ color: p.valid ? "var(--success, #2e7d32)" : "var(--text-light)" }}>
-                                  {p.valid ? "Signed ✓" : p.signed ? `Invalid: ${p.error}` : "Waiting…"}
-                                </span>
-                              </div>
-                            ))}
-                            {!signatureStatus.all_signed && (
+                            <div style={{ color: allSigned ? "var(--success, #2e7d32)" : "var(--text-light)" }}>
+                              {allSigned ? "Signatures matching ✓ — can run" : "Signatures not matching yet"}
+                            </div>
+                            {!allSigned && (
                               <div style={{ marginTop: 6, color: "var(--text-light)" }}>
                                 This can't run until every data provider has signed this contract.
                               </div>

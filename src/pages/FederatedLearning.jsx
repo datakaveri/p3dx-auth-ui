@@ -1373,7 +1373,7 @@ export default function FederatedLearning() {
                   key={`${reportSubmissionId}:${finalRosterSent}`}
                   pollKey={`${reportSubmissionId}:${finalRosterSent}`}
                   fetchStatus={() => getSessionContractSignatures(reportSubmissionId, sessionStorage.getItem('access_token') || token)}
-                  onStatus={(s) => setContractAllSigned(s?.all_signed === true)}
+                  onStatus={(s) => setContractAllSigned(s?.tee === "can run")}
                   blockedText="The FL session can't start until every data provider has signed the final roster contract."
                 />
               )}

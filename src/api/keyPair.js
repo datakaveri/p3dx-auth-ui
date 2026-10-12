@@ -10,7 +10,7 @@ export async function getKeyPairStatus(token, roleName) {
 // Generates the provider's RSA key pair entirely in the browser (WebCrypto),
 // saves the PKCS#8 private key straight to the user's disk, and only then
 // uploads the SPKI public key — the platform never sees the private key and
-// stores only the public half (in Keycloak). RSASSA-PKCS1-v1_5 / SHA-256 is
+// stores only the public half (in gov_layer's Postgres). RSASSA-PKCS1-v1_5 / SHA-256 is
 // what signContractHash signs with and gov_layer verifies against.
 //
 // The private key is saved BEFORE the public key is registered, so a
