@@ -28,7 +28,7 @@ export async function submitContractSignature(token, contractId, { notificationI
     body: JSON.stringify({ notificationId, contractHash, signature }),
   });
   const data = await parseJsonSafe(res);
-  if (!res.ok || data?.status === "FAILED") {
+  if (!res.ok || data?.status !== "signed") {
     throw new Error(data?.message || data?.error || "Failed to submit signature");
   }
   return data;

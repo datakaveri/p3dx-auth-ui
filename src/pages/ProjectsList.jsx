@@ -19,7 +19,7 @@ export default function ProjectsList() {
   const [restartError, setRestartError] = useState(null);
   const [restartedId, setRestartedId] = useState(null);
   // The restarted project awaiting signatures on its new contract:
-  // { projectId, sessionId, usernames } - its "Start FL Session" unlocks on all_signed.
+  // { projectId, sessionId, usernames } - its "Start FL Session" unlocks once its signatures match (tee "can run").
   const [pendingRestart, setPendingRestart] = useState(null);
   const [restartAllSigned, setRestartAllSigned] = useState(false);
   const [queueingRestart, setQueueingRestart] = useState(false);
@@ -177,7 +177,7 @@ export default function ProjectsList() {
                       key={`${pendingRestart.sessionId}:${pendingRestart.projectId}`}
                       pollKey={`${pendingRestart.sessionId}:${pendingRestart.projectId}`}
                       fetchStatus={() => getSessionContractSignatures(pendingRestart.sessionId, token)}
-                      onStatus={(s) => setRestartAllSigned(s?.all_signed === true)}
+                      onStatus={(s) => setRestartAllSigned(s?.tee === "can run")}
                       blockedText="The FL session can't start until every data provider has signed the new contract."
                     />
                     <button

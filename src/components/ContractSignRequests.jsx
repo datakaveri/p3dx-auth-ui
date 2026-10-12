@@ -68,7 +68,7 @@ export default function ContractSignRequests({ token }) {
       });
       setRowMessage(m => ({
         ...m,
-        [n.id]: { error: false, text: res?.all_signed ? "Signed. All providers have now signed." : "Signed and sent to the governance layer." },
+        [n.id]: { error: false, text: `Signed and ${res?.message || "sent to governance layer"}.` },
       }));
       await refresh();
     } catch (e) {

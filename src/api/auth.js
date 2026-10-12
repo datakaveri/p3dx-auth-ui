@@ -199,8 +199,8 @@ export async function queueFlSession(submissionId, participatingProviders, vmNam
 }
 
 // Signing status of a session's current contract (for FL, the final roster
-// contract): which data providers have signed its hash, plus all_signed.
-// "Start FL Session" stays disabled until all_signed is true.
+// contract): {signatures: "matching"|"not matching", tee: "can run"|"cannot run"}.
+// "Start FL Session" stays disabled until tee is "can run".
 export async function getSessionContractSignatures(submissionId, token) {
   const res = await fetch(`${BACKEND_URL}/p3dx/contracts/by-session/${encodeURIComponent(submissionId)}/signatures`, {
     headers: { Authorization: `Bearer ${token}` },

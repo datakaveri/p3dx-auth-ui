@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 
-// Shows which data providers have signed a contract's hash (re-verified by the
-// governance layer against each provider's Keycloak public key) and polls
-// until all have. fetchStatus() returns gov_layer's signatures response;
+// Shows whether a contract's data-provider signatures match (re-verified by
+// the governance layer against each provider's registered public key) and
+// polls until they do. fetchStatus() returns gov_layer's signatures response,
+// {signatures: "matching"|"not matching", tee: "can run"|"cannot run"};
 // pollKey restarts polling when it changes (e.g. a new session/contract);
-// onStatus(status) lets the parent enable its run/start button on all_signed.
+// onStatus(status) lets the parent enable its run/start button on tee "can run".
 export default function ContractSignatureStatus({ fetchStatus, pollKey, onStatus, blockedText }) {
   const [status, setStatus] = useState(null);
   const [error, setError] = useState(null);
@@ -20,7 +21,7 @@ export default function ContractSignatureStatus({ fetchStatus, pollKey, onStatus
         setStatus(s);
         setError(null);
         onStatus?.(s);
-        if (s?.all_signed) return;
+        if (s?.tee === "can run") return;
       } catch (err) {
         if (cancelled) return;
         setError(err.message || "Failed to check signatures");
@@ -46,15 +47,10 @@ export default function ContractSignatureStatus({ fetchStatus, pollKey, onStatus
         <div style={{ color: "var(--text-light)" }}>Checking signatures…</div>
       ) : (
         <>
-          {(status.parties || []).map(p => (
-            <div key={`${p.provider_id}-${p.dataset_name}`} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <span>{p.provider_id}{p.dataset_name ? ` · ${p.dataset_name}` : ""}</span>
-              <span style={{ color: p.valid ? "var(--success, #2e7d32)" : "var(--text-light)" }}>
-                {p.valid ? "Signed ✓" : p.signed ? `Invalid: ${p.error}` : "Waiting…"}
-              </span>
-            </div>
-          ))}
-          {!status.all_signed && (
+          <div style={{ color: status.tee === "can run" ? "var(--success, #2e7d32)" : "var(--text-light)" }}>
+            {status.tee === "can run" ? "Signatures matching ✓ — can run" : "Signatures not matching yet"}
+          </div>
+          {status.tee !== "can run" && (
             <div style={{ marginTop: 6, color: "var(--text-light)" }}>
               {blockedText || "This can't start until every data provider has signed this contract."}
             </div>
