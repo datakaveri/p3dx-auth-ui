@@ -282,6 +282,29 @@ export async function startFlSession(submissionId, azureToken, participatingProv
   return data;
 }
 
+// Data provider: re-enter the P3DX password to authorize this session's
+// client VM. The password goes only to p3dx-aaa, which hands the resulting
+// VM token straight to the orchestrator - the browser only ever gets back
+// an opaque credential_id to pass on to triggerAutoProvision.
+export async function issueVmCredential(submissionId, password, token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/fl/vm-credentials`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ submission_id: submissionId, password }),
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED" || !data?.credential_id) {
+    const err = new Error(data?.message || data?.error || `Failed to authorize VM (${res.status})`);
+    err.code = data?.error || `HTTP_${res.status}`;
+    err.statusCode = res.status;
+    throw err;
+  }
+  return { credential_id: data.credential_id, expires_at: data.expires_at };
+}
+
 // Data provider: tell the output owner that Azure sign-in for this FL
 // session is done, so their dashboard can show it live.
 export async function notifyAzureSignIn(ownerUsername, submissionId, token) {
