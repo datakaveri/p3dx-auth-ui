@@ -230,23 +230,31 @@ export default function FederatedLearningDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Provider signs in with their own Azure account in response to the
-  // FL-session-start popup - separate identity from the output owner's Azure
+  // Provider signs in with their own Azure account in response to an
+  // FL-session-start invite - from the popup or from the "Go to session" button
+  // in the Notifications list. Separate identity from the output owner's Azure
   // login used for ARM/Terraform provisioning.
-  const handleAzureSignIn = async () => {
+  const joinSession = async (notification) => {
     setSigningIn(true);
-    const payload = parseNotificationPayload(sessionStartModal.notification);
+    const payload = parseNotificationPayload(notification);
     const context = {
       ownerUsername: payload.output_owner_id,
       submissionId: payload.submission_id,
-      notificationId: sessionStartModal.notification?.id,
+      notificationId: notification?.id,
     };
+    // finishAzureSignIn reads the VM name from sessionStorage; persist the
+    // current Data Provider Form value so it isn't lost when the popup (which
+    // normally writes it) was never opened.
+    setDpVmName(dpVmName);
     try {
       const result = await signInProviderWithAzure(context);
       if (result.redirected) return; // page is navigating to Microsoft
       await finishAzureSignIn(result.account, context);
     } catch (err) {
-      setAzureSignInResult({ ok: false, text: `Azure sign-in failed: ${err?.message || String(err)}` });
+      const text = `Azure sign-in failed: ${err?.message || String(err)}`;
+      setAzureSignInResult({ ok: false, text });
+      // The modal shows azureSignInResult itself; from the list, use the page-level banner.
+      if (!sessionStartModal.open) setActionError(text);
     } finally {
       setSigningIn(false);
     }
@@ -333,12 +341,11 @@ export default function FederatedLearningDashboard() {
     };
   }, [token, hasDataProvider, user?.username]);
 
-  // "fl_session_start" invites live only in the popup (see FLSessionStartModal
-  // above) - they're deliberately excluded from the list so a provider never
-  // sees the same invite sitting around twice, in the popup and in the feed.
-  const visibleNotifications = notifications.filter(
-    n => !dismissedIds.has(n.id) && parseNotificationPayload(n).kind !== "fl_session_start"
-  );
+  // "fl_session_start" invites are also kept in the list (with a "Go to
+  // session" button), not just the popup (see FLSessionStartModal above) - the
+  // popup only fires on a live push while on this page, so a provider who was
+  // elsewhere or reloaded would otherwise have no way to join.
+  const visibleNotifications = notifications.filter(n => !dismissedIds.has(n.id));
   const visibleSentNotifications = sentNotifications.filter(n => !dismissedIds.has(n.id));
 
   return (
@@ -608,6 +615,7 @@ export default function FederatedLearningDashboard() {
                       : (notification.payload || {});
                     const isRequest = payload.kind === "participation_request";
                     const isRoster = payload.kind === "participation_roster";
+                    const isSessionStart = payload.kind === "fl_session_start";
                     const selectedList = Array.isArray(payload.selected_providers) ? payload.selected_providers : [];
                     const requestedList = Array.isArray(payload.requested_providers) ? payload.requested_providers : [];
                     const willingList = Array.isArray(payload.willing_providers) ? payload.willing_providers : [];
@@ -818,6 +826,23 @@ export default function FederatedLearningDashboard() {
                         </div>
                       )}
 
+                      {isSessionStart && (
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          <button
+                            onClick={() => joinSession(notification)}
+                            disabled={signingIn}
+                            style={{
+                              padding: "6px 14px", fontSize: "0.8rem",
+                              backgroundColor: "var(--primary-color, #6c63ff)", color: "white",
+                              border: "none", borderRadius: "6px",
+                              cursor: signingIn ? "default" : "pointer",
+                            }}
+                          >
+                            {signingIn ? "Signing in..." : "Go to session"}
+                          </button>
+                        </div>
+                      )}
+
                       {isRequest && responded && (
                         <div style={{
                           fontSize: "0.85rem", fontWeight: 500,
@@ -845,7 +870,7 @@ export default function FederatedLearningDashboard() {
         open={sessionStartModal.open}
         notification={sessionStartModal.notification}
         onClose={() => setSessionStartModal({ open: false, notification: null })}
-        onSignIn={handleAzureSignIn}
+        onSignIn={() => joinSession(sessionStartModal.notification)}
         signingIn={signingIn}
         result={azureSignInResult}
         vmName={dpVmName}
