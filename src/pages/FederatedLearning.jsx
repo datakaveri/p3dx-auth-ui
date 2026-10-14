@@ -125,6 +125,25 @@ function IconPlug() {
   return <svg {...ICON_PROPS}><path d="M8 12l4-4" /><path d="M7 9 5.6 7.6a2.5 2.5 0 1 1 3.5-3.5L10.4 5.4" /><path d="M12 11l1.4 1.4a2.5 2.5 0 1 1-3.5 3.5L8.6 14.6" /></svg>;
 }
 
+// Auto-generated Form ID: fl-<YYYYMMDD>-<8-char base36>, via crypto.getRandomValues
+// with rejection sampling (avoids modulo bias mapping bytes onto the 36-char alphabet).
+// Mirrors generateDatasetId() in PolicyForm.jsx; duplicated locally since no shared
+// utils module exists in src.
+function generateFormId() {
+  const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const alphabet = '0123456789abcdefghijklmnopqrstuvwxyz';
+  const limit = 256 - (256 % alphabet.length);
+  let suffix = '';
+  const buf = new Uint8Array(1);
+  while (suffix.length < 8) {
+    crypto.getRandomValues(buf);
+    if (buf[0] < limit) {
+      suffix += alphabet[buf[0] % alphabet.length];
+    }
+  }
+  return `fl-${datePart}-${suffix}`;
+}
+
 export default function FederatedLearning() {
   const { user, token } = useOutletContext();
 
@@ -153,8 +172,11 @@ export default function FederatedLearning() {
   });
 
   // Output Owner form state
-  const [formData, setFormData] = useState({
-    form_id: 'outputform-001',
+  // form_id is minted once per form mount via this lazy initializer: unique per
+  // FL session so submissions/sessions never share an id, yet fixed while the
+  // form is open so step 2's re-submit still upserts the same submission.
+  const [formData, setFormData] = useState(() => ({
+    form_id: generateFormId(),
     requested_by: user?.username || 'admin-uuid-001',
     output_owner_id: user?.username || '',
     num_server_rounds: 10,
@@ -171,7 +193,7 @@ export default function FederatedLearning() {
     // Not part of buildOwnerPayload below (governance layer doesn't need
     // it) - only read by handleStartFlSession to name the VM Terraform creates.
     vm_name: user?.username || ''
-  });
+  }));
   const [msg, setMsg] = useState(null);
   // Persist the last submission id so the report stays downloadable after a page reload.
   const [reportSubmissionId, setReportSubmissionId] = useState(
@@ -1427,7 +1449,10 @@ export default function FederatedLearning() {
                 <div className="fl-form-grid">
                   <div className="form-group">
                     <label>Form ID</label>
-                    <input value={formData.form_id} onChange={(e) => setFormData({...formData, form_id: e.target.value})} />
+                    <input className="input" readOnly disabled value={formData.form_id} />
+                    <div style={{ fontSize: '12px', color: 'var(--text-light)', marginTop: '4px' }}>
+                      Auto-generated
+                    </div>
                   </div>
                   <div className="form-group">
                     <label>Output Owner ID</label>
