@@ -1015,19 +1015,19 @@ export default function FederatedLearning() {
                 <div className="fl-form-grid">
                   <div className="form-group">
                     <label>Form ID</label>
-                    <input value={dpFormData.form_id} onChange={(e) => setDpFormData({...dpFormData, form_id: e.target.value})} />
+                    <input className="input" value={dpFormData.form_id} onChange={(e) => setDpFormData({...dpFormData, form_id: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>Data Owner ID</label>
-                    <input value={dpFormData.data_owner_id} onChange={(e) => setDpFormData({...dpFormData, data_owner_id: e.target.value})} />
+                    <input className="input" value={dpFormData.data_owner_id} onChange={(e) => setDpFormData({...dpFormData, data_owner_id: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>Dataset Name</label>
-                    <input value={dpFormData.dataset_name} onChange={(e) => setDpFormData({...dpFormData, dataset_name: e.target.value})} />
+                    <input className="input" value={dpFormData.dataset_name} onChange={(e) => setDpFormData({...dpFormData, dataset_name: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>Dataset Location URL</label>
-                    <input placeholder="e.g. https://storage.example.com/datasets/my-dataset" value={dpFormData.dataset_location_url} onChange={(e) => setDpFormData({...dpFormData, dataset_location_url: e.target.value})} />
+                    <input className="input" placeholder="e.g. https://storage.example.com/datasets/my-dataset" value={dpFormData.dataset_location_url} onChange={(e) => setDpFormData({...dpFormData, dataset_location_url: e.target.value})} />
                   </div>
                 </div>
               </div>
@@ -1043,23 +1043,23 @@ export default function FederatedLearning() {
                 <div className="fl-form-grid">
                   <div className="form-group">
                     <label>RAM (MB)</label>
-                    <input type="number" value={dpFormData.RAM} onChange={(e) => setDpFormData({...dpFormData, RAM: e.target.value})} />
+                    <input className="input" type="number" value={dpFormData.RAM} onChange={(e) => setDpFormData({...dpFormData, RAM: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>RAM Usage (MB)</label>
-                    <input type="number" value={dpFormData.ram_usage} onChange={(e) => setDpFormData({...dpFormData, ram_usage: e.target.value})} />
+                    <input className="input" type="number" value={dpFormData.ram_usage} onChange={(e) => setDpFormData({...dpFormData, ram_usage: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>Disk Space (MB)</label>
-                    <input type="number" value={dpFormData.memory_mb} onChange={(e) => setDpFormData({...dpFormData, memory_mb: e.target.value})} />
+                    <input className="input" type="number" value={dpFormData.memory_mb} onChange={(e) => setDpFormData({...dpFormData, memory_mb: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>Data Size (bytes)</label>
-                    <input type="number" value={dpFormData.data_size_bytes} onChange={(e) => setDpFormData({...dpFormData, data_size_bytes: e.target.value})} />
+                    <input className="input" type="number" value={dpFormData.data_size_bytes} onChange={(e) => setDpFormData({...dpFormData, data_size_bytes: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>Data Resource ID</label>
-                    <input value={dpFormData.data_resource_id} onChange={(e) => setDpFormData({...dpFormData, data_resource_id: e.target.value})} />
+                    <input className="input" value={dpFormData.data_resource_id} onChange={(e) => setDpFormData({...dpFormData, data_resource_id: e.target.value})} />
                   </div>
                 </div>
               </div>
@@ -1075,11 +1075,11 @@ export default function FederatedLearning() {
                 <div className="fl-form-grid">
                   <div className="form-group">
                     <label>IP Address</label>
-                    <input placeholder="e.g. 192.168.1.10" value={dpFormData.ip_address} onChange={(e) => setDpFormData({...dpFormData, ip_address: e.target.value})} />
+                    <input className="input" placeholder="e.g. 192.168.1.10" value={dpFormData.ip_address} onChange={(e) => setDpFormData({...dpFormData, ip_address: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>Port</label>
-                    <input type="number" placeholder="e.g. 8080" min="1" max="65535" value={dpFormData.port} onChange={(e) => setDpFormData({...dpFormData, port: e.target.value})} />
+                    <input className="input" type="number" placeholder="e.g. 8080" min="1" max="65535" value={dpFormData.port} onChange={(e) => setDpFormData({...dpFormData, port: e.target.value})} />
                   </div>
                 </div>
               </div>
@@ -1456,7 +1456,7 @@ export default function FederatedLearning() {
                   </div>
                   <div className="form-group">
                     <label>Output Owner ID</label>
-                    <input value={formData.output_owner_id} onChange={(e) => setFormData({...formData, output_owner_id: e.target.value})} />
+                    <input className="input" value={formData.output_owner_id} onChange={(e) => setFormData({...formData, output_owner_id: e.target.value})} />
                   </div>
                 </div>
               </div>
@@ -1472,27 +1472,27 @@ export default function FederatedLearning() {
                 <div className="fl-form-grid">
                   <div className="form-group">
                     <label>Number of Server Rounds</label>
-                    <input type="number" value={formData.num_server_rounds} onChange={(e) => setFormData({...formData, num_server_rounds: e.target.value})} />
+                    <input className="input" type="number" value={formData.num_server_rounds} onChange={(e) => setFormData({...formData, num_server_rounds: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>Fraction Evaluate</label>
-                    <input type="number" step="0.1" value={formData.fraction_evaluate} onChange={(e) => setFormData({...formData, fraction_evaluate: e.target.value})} />
+                    <input className="input" type="number" step="0.1" value={formData.fraction_evaluate} onChange={(e) => setFormData({...formData, fraction_evaluate: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>Local Epochs</label>
-                    <input type="number" value={formData.local_epochs} onChange={(e) => setFormData({...formData, local_epochs: e.target.value})} />
+                    <input className="input" type="number" value={formData.local_epochs} onChange={(e) => setFormData({...formData, local_epochs: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>Learning Rate</label>
-                    <input type="number" step="0.001" value={formData.learning_rate} onChange={(e) => setFormData({...formData, learning_rate: e.target.value})} />
+                    <input className="input" type="number" step="0.001" value={formData.learning_rate} onChange={(e) => setFormData({...formData, learning_rate: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>Batch Size</label>
-                    <input type="number" value={formData.batch_size} onChange={(e) => setFormData({...formData, batch_size: e.target.value})} />
+                    <input className="input" type="number" value={formData.batch_size} onChange={(e) => setFormData({...formData, batch_size: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>RAM Usage (MB)</label>
-                    <input type="number" value={formData.ram_usage} onChange={(e) => setFormData({...formData, ram_usage: e.target.value})} />
+                    <input className="input" type="number" value={formData.ram_usage} onChange={(e) => setFormData({...formData, ram_usage: e.target.value})} />
                   </div>
                 </div>
               </div>
@@ -1508,15 +1508,15 @@ export default function FederatedLearning() {
                 <div className="fl-form-grid">
                   <div className="form-group">
                     <label>Model</label>
-                    <input value={formData.model} onChange={(e) => setFormData({...formData, model: e.target.value})} />
+                    <input className="input" value={formData.model} onChange={(e) => setFormData({...formData, model: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>Framework</label>
-                    <input value={formData.framework} onChange={(e) => setFormData({...formData, framework: e.target.value})} />
+                    <input className="input" value={formData.framework} onChange={(e) => setFormData({...formData, framework: e.target.value})} />
                   </div>
                   <div className="form-group form-group--wide">
                     <label>Components (comma-separated key=value pairs)</label>
-                    <input
+                    <input className="input"
                       value={formData.components}
                       onChange={(e) => setFormData({...formData, components: e.target.value})}
                       placeholder="e.g., param1=value1, param2=value2"
@@ -1536,15 +1536,15 @@ export default function FederatedLearning() {
                 <div className="fl-form-grid">
                   <div className="form-group">
                     <label>IP Address</label>
-                    <input placeholder="e.g. 192.168.1.1" value={formData.ip_address} onChange={(e) => setFormData({...formData, ip_address: e.target.value})} />
+                    <input className="input" placeholder="e.g. 192.168.1.1" value={formData.ip_address} onChange={(e) => setFormData({...formData, ip_address: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>Port</label>
-                    <input type="number" placeholder="e.g. 8080" min="1" max="65535" value={formData.port} onChange={(e) => setFormData({...formData, port: e.target.value})} />
+                    <input className="input" type="number" placeholder="e.g. 8080" min="1" max="65535" value={formData.port} onChange={(e) => setFormData({...formData, port: e.target.value})} />
                   </div>
                   <div className="form-group form-group--wide">
                     <label>VM Name</label>
-                    <input placeholder="e.g. my-fl-vm" value={formData.vm_name} onChange={(e) => setFormData({...formData, vm_name: e.target.value})} />
+                    <input className="input" placeholder="e.g. my-fl-vm" value={formData.vm_name} onChange={(e) => setFormData({...formData, vm_name: e.target.value})} />
                     <div style={{ fontSize: '12px', color: 'var(--text-light)', marginTop: '4px' }}>
                       Names the VM auto-created for you when you start the FL session.
                     </div>
