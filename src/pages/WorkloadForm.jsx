@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import {
-  previewContract, runTeeJob, /* startTeeSession, */ getTeeSessionStatus,
+  previewContract, runTeeJob, editContract, listWorkloads, /* startTeeSession, */ getTeeSessionStatus,
   downloadTeeSessionOutput, terminateTeeSession, getContractSignatures,
 } from "../api/workloads";
 import {
@@ -20,13 +20,10 @@ const TEE_SESSION_POLL_MS = 5000;
 // Statuses where the session is still in flight and worth polling.
 const TEE_SESSION_ACTIVE = new Set(["provisioning", "attesting", "running"]);
 
-// TEE only: the workload to run inside the enclave. Hardcoded for now — no
-// catalogue of registered applications exists yet. The selected id is sent as
-// applicationId and lands in the contract's application_providers party; its
-// image/resources come from gov_layer's services.KnownWorkloads (keep in step).
-const TEE_WORKLOADS = [
-  { id: "mnist", name: "MNIST" },
-];
+// TEE only: the workload to run inside the enclave comes from gov_layer's
+// catalogue (services.KnownWorkloads, via GET /p3dx/workloads/catalog). The
+// selected id is sent as applicationId and lands in the contract's
+// application_providers party.
 
 const TEE_SESSION_LABELS = {
   provisioning: "Starting the confidential VM (cold boot can take a minute)…",
@@ -121,9 +118,22 @@ export default function WorkloadForm() {
   const [infraSearchQuery, setInfraSearchQuery] = useState("");
   // Any number >= 1 of datasets may be selected (was a single scalar id).
   const [selectedDatasetIds, setSelectedDatasetIds] = useState([]);
-  // TEE only: single selection from TEE_WORKLOADS (null until picked).
+  // TEE only: single selection from the workload catalogue (null until picked).
+  const [workloads, setWorkloads] = useState([]);
+  const [workloadsError, setWorkloadsError] = useState(null);
   const [selectedWorkloadId, setSelectedWorkloadId] = useState(null);
-  const selectedWorkload = TEE_WORKLOADS.find(w => w.id === selectedWorkloadId) || null;
+  // TEE: the consumer's stated purpose of processing, carried into the
+  // contract and shown to data providers in their DPDP consent notice.
+  const [purpose, setPurpose] = useState("");
+  const selectedWorkload = workloads.find(w => w.id === selectedWorkloadId) || null;
+  const loadWorkloads = () => {
+    if (!token || technique !== "TEE") return;
+    setWorkloadsError(null);
+    listWorkloads(token)
+      .then(list => setWorkloads(list))
+      .catch(err => setWorkloadsError(err.message || "Failed to load workloads"));
+  };
+  useEffect(loadWorkloads, [token, technique]);
 
   // Real, registered datasets (from APD via aaa's /available-datasets) — each
   // a {id, name} pair (id is the real item_id a by-item policy lookup needs;
@@ -210,6 +220,10 @@ export default function WorkloadForm() {
   const [signatureError, setSignatureError] = useState(null);
   const needsSignatures = technique === "TEE" || technique === "SMPC";
   const allSigned = !needsSignatures || signatureStatus?.tee === "can run";
+  // TEE: the consumer can edit the generated contract's workload in place.
+  // It isn't re-signed, so gov_layer refuses the run afterwards — Run stays
+  // clickable after an edit so that refusal can be seen.
+  const [contractEdited, setContractEdited] = useState(false);
 
   // Filtered lists
   const filteredDatasetList = useMemo(() => {
@@ -277,8 +291,10 @@ export default function WorkloadForm() {
     if (selectedDatasetIds.length === 0 || !technique) return;
     if (isSMPCTechnique && selectedInfraIds.length !== 2) return;
     if (isTEETechnique && !selectedWorkloadId) return;
+    // if (isTEETechnique && !purpose.trim()) return; // purpose is optional for now
     setError(null);
     setGeneratedContract(null);
+    setContractEdited(false);
     setSignatureStatus(null);
     setSignatureError(null);
     setTeeSession(null);
@@ -291,7 +307,7 @@ export default function WorkloadForm() {
         datasets: selectedDatasets.map(d => ({ datasetId: d.id, datasetName: d.name })),
         technique,
         infraIds: selectedInfraIds,
-        ...(isTEETechnique ? { applicationId: selectedWorkloadId } : {}),
+        ...(isTEETechnique ? { applicationId: selectedWorkloadId, ...(purpose.trim() ? { purpose: purpose.trim() } : {}) } : {}),
       });
       const contract = res?.contract || null;
       setGeneratedContract(contract);
@@ -303,7 +319,7 @@ export default function WorkloadForm() {
       // dataset feeding startTeeSession further down).
       setDatasetUrl(contract?.parties?.data_providers?.[0]?.data_url || "");
     } catch (err) {
-      setError(err.message || "Contract generation failed");
+      setError(err.message || "Consent request generation failed");
     } finally {
       setIsGenerating(false);
     }
@@ -342,6 +358,20 @@ export default function WorkloadForm() {
     // } finally {
     //   setIsStartingRun(false);
     // }
+  };
+
+  // Called by the preview popup's Edit/Save; errors propagate to the popup.
+  const handleSaveContractEdit = async changes => {
+    if (!generatedContract?.contract_id) return;
+    const res = await editContract(token, generatedContract.contract_id, changes);
+    if (res?.contract) setGeneratedContract(res.contract);
+    setContractEdited(true);
+    setTeeJob(null);
+    try {
+      setSignatureStatus(await getContractSignatures(token, generatedContract.contract_id));
+    } catch {
+      // the polled status is only informational here
+    }
   };
 
   const handleDownloadResult = async () => {
@@ -417,13 +447,14 @@ export default function WorkloadForm() {
 
   const canRun = selectedDatasetIds.length > 0 && technique
     && (!isSMPCTechnique || selectedInfraIds.length === 2)
-    && (!isTEETechnique || !!selectedWorkloadId);
+    && (!isTEETechnique || !!selectedWorkloadId); // purpose no longer required: && !!purpose.trim()
   const missingItems = [];
   if (selectedDatasetIds.length === 0) missingItems.push("at least one dataset");
   if (isSMPCTechnique && selectedInfraIds.length !== 2) {
     missingItems.push(`exactly 2 infrastructure providers (${selectedInfraIds.length} selected)`);
   }
   if (isTEETechnique && !selectedWorkloadId) missingItems.push("a workload");
+  // if (isTEETechnique && !purpose.trim()) missingItems.push("the purpose of processing");
   if (!technique) missingItems.push("service (go back to Services and start from SMPC or Anonymization)");
 
   return (
@@ -522,8 +553,16 @@ export default function WorkloadForm() {
           {showWorkloadTab ? (
             /* Workload tab — TEE only, single selection (clicking the selected one clears it). */
             <div className="cat-list">
+              {workloadsError && (
+                <div className="error-message" style={{ fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <span>{workloadsError}</span>
+                  <button type="button" className="btn btn-secondary" style={{ width: "auto" }} onClick={loadWorkloads}>
+                    Retry
+                  </button>
+                </div>
+              )}
               <div className="cat-simple-list">
-                {TEE_WORKLOADS.map(w => (
+                {workloads.map(w => (
                   <button
                     key={w.id}
                     type="button"
@@ -749,10 +788,33 @@ export default function WorkloadForm() {
           </div>
         )}
 
+        {/* TEE: purpose of processing — shown to data providers in the DPDP
+            Rule 3 consent notice and covered by the signed contract hash. */}
+        {/* Hidden for now — purpose is optional.
+        {isTEETechnique && (
+          <div style={{ marginBottom: 12 }}>
+            <label className="label" htmlFor="tee-purpose">Purpose of processing</label>
+            <textarea
+              id="tee-purpose"
+              className="input"
+              rows={3}
+              maxLength={1000}
+              value={purpose}
+              onChange={e => setPurpose(e.target.value)}
+              placeholder="e.g. Anonymise hospital admission records to study seasonal bed occupancy"
+              style={{ width: "100%", resize: "vertical" }}
+            />
+            <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 4 }}>
+              Shown to each data provider in their consent notice. Their consent covers this purpose only.
+            </div>
+          </div>
+        )}
+        */}
+
         {/* Status */}
         <div className={`cat-status${canRun ? " cat-status--ready" : ""}`}>
           {canRun
-            ? <><CheckCircle2 size={15} /><span>Ready to generate contract</span></>
+            ? <><CheckCircle2 size={15} /><span>Ready to generate consent request</span></>
             : <><AlertCircle size={15} /><span>Select {missingItems.join(", ")} to continue</span></>
           }
         </div>
@@ -766,9 +828,9 @@ export default function WorkloadForm() {
           onClick={handleGenerateContract}
         >
           {isGenerating ? (
-            "Generating Contract..."
+            "Generating Consent Request..."
           ) : (
-            <><Play size={14} style={{ marginRight: 6 }} />Generate Contract</>
+            <><Play size={14} style={{ marginRight: 6 }} />Generate Consent Request</>
           )}
         </button>
 
@@ -776,7 +838,7 @@ export default function WorkloadForm() {
           <div className="card" style={{ marginTop: 14 }}>
             <div className="cat-summary__header" style={{ padding: 0, marginBottom: 10 }}>
               <CheckCircle2 size={16} />
-              <span>Generated Contract (preview only — not submitted)</span>
+              <span>Generated Consent Request (preview only — not submitted)</span>
             </div>
             <div className="grid">
               <div>
@@ -794,7 +856,7 @@ export default function WorkloadForm() {
               style={{ width: "100%", marginTop: 12 }}
               onClick={() => setShowContractPreview(true)}
             >
-              <FileText size={14} style={{ marginRight: 6 }} />Preview Contract
+              <FileText size={14} style={{ marginRight: 6 }} />Preview Consent Request
             </button>
 
             {(technique === "TEE" || technique === "SMPC") && (
@@ -813,9 +875,14 @@ export default function WorkloadForm() {
                             <div style={{ color: allSigned ? "var(--success, #2e7d32)" : "var(--text-light)" }}>
                               {allSigned ? "Signatures matching ✓ — can run" : "Signatures not matching yet"}
                             </div>
-                            {!allSigned && (
+                            {contractEdited && (
+                              <div className="error-message" style={{ marginTop: 6, fontSize: 13 }}>
+                                Edited after signing — this consent request no longer matches what the data providers signed, so the run will be refused.
+                              </div>
+                            )}
+                            {!allSigned && !contractEdited && (
                               <div style={{ marginTop: 6, color: "var(--text-light)" }}>
-                                This can't run until every data provider has signed this contract.
+                                This can't run until every data provider has signed this consent request.
                               </div>
                             )}
                           </>
@@ -831,7 +898,7 @@ export default function WorkloadForm() {
                       type="button"
                       className="btn btn-primary"
                       style={{ width: "100%" }}
-                      disabled={isStartingRun || !datasetUrl || !allSigned}
+                      disabled={isStartingRun || !datasetUrl || (!allSigned && !contractEdited)}
                       onClick={handleRunTee}
                     >
                       {isStartingRun ? (
@@ -853,7 +920,7 @@ export default function WorkloadForm() {
                       <div style={{ marginTop: 10, fontSize: 13 }}>
                         <div style={{ color: "var(--success, #2e7d32)", marginBottom: 4 }}>Job submitted ✓</div>
                         <div>Job ID: <code>{teeJob.job.jobId || "—"}</code></div>
-                        <div>State: {teeJob.job.state || "—"}</div>
+                        {/* <div>State: {teeJob.job.state || "—"}</div> */}
                         {teeJob.job.reason && <div>Reason: {teeJob.job.reason}</div>}
                       </div>
                     )}
@@ -957,6 +1024,8 @@ export default function WorkloadForm() {
         open={showContractPreview}
         contract={generatedContract}
         onClose={() => setShowContractPreview(false)}
+        onEdit={technique === "TEE" ? handleSaveContractEdit : undefined}
+        workloads={workloads}
       />
     </div>
   );

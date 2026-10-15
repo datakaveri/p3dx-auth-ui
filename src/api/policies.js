@@ -96,6 +96,29 @@ export async function listMyDatasetPolicies(token) {
   return data;
 }
 
+// The contracts each of the logged-in data-provider's datasets is used in,
+// as { data: { "<item_id>": [{ contract_id, job_id, technique, job_state,
+// status, created_at }] } } — backs the hover popover on "My Datasets".
+export async function listMyDatasetContracts(token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/jobs/mine-datasets`, {
+    headers: authHeaders(token),
+  });
+
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+
+  if (!res.ok || data?.status === "FAILED") {
+    const msg = data?.error || data?.message || `Fetching dataset contracts failed (${res.status})`;
+    throw new Error(msg);
+  }
+
+  return data;
+}
+
 // Soft-deletes one dataset entry, by Dataset ID (item_id) — only ever
 // succeeds for the caller's own entries (enforced server-side). Mirrors
 // deleteInfraPolicy exactly.

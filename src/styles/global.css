@@ -752,6 +752,51 @@ a:hover {
 .table-badge--gcp   { background: rgba(234, 179, 8, 0.14); color: #a16207; }
 .table-badge--aws   { background: rgba(249, 115, 22, 0.14); color: #c2410c; }
 .table-badge--neutral { background: rgba(37, 99, 235, 0.12); color: #1e40af; }
+/* Audit activity statuses. */
+.table-badge--ok   { background: rgba(16, 185, 129, 0.14); color: #047857; }
+.table-badge--wait { background: rgba(234, 179, 8, 0.16); color: #92400e; }
+.table-badge--bad  { background: rgba(220, 38, 38, 0.12); color: #b91c1c; }
+
+/* Hover popover on "My Datasets" rows: which contracts use the dataset. */
+.dataset-contracts-popover {
+  position: fixed;
+  z-index: 1000;
+  min-width: 280px;
+  max-width: 460px;
+  padding: 12px 14px;
+  background: var(--bg-white);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  font-size: 13px;
+  pointer-events: none;
+}
+.dataset-contracts-popover-title {
+  font-weight: 700;
+  color: var(--text-dark);
+  margin-bottom: 8px;
+}
+.dataset-contracts-popover ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dataset-contracts-popover li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dataset-contracts-popover li code {
+  font-size: 12px;
+  word-break: break-all;
+  color: var(--text-dark);
+}
+.dataset-contracts-popover li span {
+  color: var(--text-light);
+}
 
 .table-wrap {
   overflow-x: auto;
@@ -1833,6 +1878,41 @@ textarea.input {
 .stat-card__value--blue   { color: var(--primary-color); }
 .stat-card__value--amber  { color: #d97706; }
 .stat-card__value--green  { color: #059669; }
+
+/* Audit page: a dataset in live use (its contract's TEE run is on). */
+.audit-row--live td { background: rgba(16, 185, 129, 0.08); }
+.audit-row--bad td { background: rgba(220, 38, 38, 0.05); }
+.audit-row--clickable { cursor: pointer; }
+.audit-timeline { list-style: none; margin: 0; padding: 4px 0; display: flex; flex-direction: column; gap: 8px; }
+.audit-timeline li { display: flex; gap: 12px; font-size: 13px; }
+.audit-timeline time { color: var(--text-light); white-space: nowrap; min-width: 150px; }
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  background: rgba(16, 185, 129, 0.14);
+  color: #047857;
+}
+.live-badge--idle { background: rgba(107, 114, 128, 0.12); color: var(--text-light); }
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55); }
+  50% { box-shadow: 0 0 0 5px rgba(16, 185, 129, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-dot { animation: none; }
+}
 
 /* Result success banner */
 .result-success-banner {
@@ -3252,4 +3332,90 @@ textarea.input {
   max-height: 200px;
   opacity: 1;
   margin-top: 6px;
+}
+
+/* DPDP Rule 3 consent notice (data-provider contract signing) */
+.dpdp-notice {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-white);
+  padding: 18px 20px;
+  max-width: 900px;
+  white-space: normal;
+}
+
+.dpdp-notice__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--primary-color);
+  margin-bottom: 12px;
+}
+
+.dpdp-notice__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-dark);
+}
+
+.dpdp-notice__sub {
+  font-size: 12px;
+  color: var(--text-light);
+}
+
+.dpdp-lead {
+  font-size: 14px;
+  color: var(--text-dark);
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+
+.dpdp-section {
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+  margin-bottom: 12px;
+}
+
+.dpdp-section .cpm-section__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.dpdp-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-dark);
+}
+
+.dpdp-list li + li {
+  margin-top: 4px;
+}
+
+.dpdp-missing {
+  color: var(--warning-color);
+  font-style: italic;
+}
+
+.dpdp-ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-top: 4px;
+  border-radius: var(--radius-sm);
+  background: rgba(37, 99, 235, 0.06);
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dark);
+  cursor: pointer;
+}
+
+.dpdp-ack input {
+  margin-top: 2px;
+  flex-shrink: 0;
 }

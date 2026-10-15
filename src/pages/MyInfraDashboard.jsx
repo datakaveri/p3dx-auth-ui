@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { deleteInfraPolicy, listMyInfraPolicies } from "../api/policies";
+import ManageTabs from "../components/ManageTabs";
 import Modal from "../components/Modal";
 
 const PLATFORM_LABELS = { azure: "Azure", gcp: "GCP", aws: "AWS" };
@@ -13,9 +14,6 @@ export default function MyInfraDashboard() {
   const { user, token } = useOutletContext();
   const roles = useMemo(() => user?.roles || [], [user]);
   const hasInfraProvider = roles.includes("infra-provider");
-  // A user holding both provider roles gets a tab switcher to "My Datasets"
-  // below (see the Manage nav edge case) — single-role users see none of it.
-  const hasDataProvider = roles.includes("data-provider");
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -80,20 +78,7 @@ export default function MyInfraDashboard() {
 
   return (
     <div>
-      {hasInfraProvider && hasDataProvider ? (
-        <div className="cat-tabs" style={{ marginBottom: "16px" }}>
-          <button
-            type="button"
-            className="cat-tab"
-            onClick={() => navigate("/app/services/policies/my", { state: { returnTo } })}
-          >
-            Datasets
-          </button>
-          <button type="button" className="cat-tab cat-tab--active">
-            Infrastructure
-          </button>
-        </div>
-      ) : null}
+      <ManageTabs returnTo={returnTo} />
       <div className="page-header">
         <div className="page-header-title">
           <h3 className="section-title" style={{ marginBottom: 0 }}>My Infrastructure</h3>

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
-import { deleteDatasetPolicy, listMyDatasetPolicies } from "../api/policies";
+import { deleteDatasetPolicy, listMyDatasetContracts, listMyDatasetPolicies } from "../api/policies";
+import ManageTabs from "../components/ManageTabs";
 import Modal from "../components/Modal";
-import ContractSignRequests from "../components/ContractSignRequests";
 
 // "My Datasets" dashboard — the data-provider counterpart to
 // MyInfraDashboard.jsx, same shape: list the data-provider's own dataset
@@ -13,10 +13,6 @@ export default function MyDatasetsDashboard() {
   const { user, token } = useOutletContext();
   const roles = useMemo(() => user?.roles || [], [user]);
   const hasDataProvider = roles.includes("data-provider");
-  // A user holding both provider roles gets a tab switcher to "My
-  // Infrastructure" below (see the Manage nav edge case) — single-role
-  // users see none of it.
-  const hasInfraProvider = roles.includes("infra-provider");
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -27,6 +23,16 @@ export default function MyDatasetsDashboard() {
   const [error, setError] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [modal, setModal] = useState({ open: false, item: null });
+  // Contracts per dataset item_id, for the row hover popover. Loaded
+  // separately so a failure here never blocks the dataset table itself.
+  const [contractsByDataset, setContractsByDataset] = useState({});
+  const [contractsError, setContractsError] = useState(null);
+  // { item, top, left } of the hovered row; the popover is position: fixed
+  // since .table-wrap's overflow-x would clip an absolutely placed one.
+  const [hover, setHover] = useState(null);
+  // Edit / Delete column — hidden until the header's "Actions" button
+  // reveals it for every dataset at once.
+  const [showActions, setShowActions] = useState(false);
 
   useEffect(() => {
     if (!hasDataProvider) {
@@ -52,6 +58,18 @@ export default function MyDatasetsDashboard() {
     } finally {
       setLoading(false);
     }
+    try {
+      const res = await listMyDatasetContracts(token);
+      setContractsByDataset(res?.data && typeof res.data === "object" ? res.data : {});
+      setContractsError(null);
+    } catch (e) {
+      setContractsError(e?.message || "Failed to load contracts");
+    }
+  };
+
+  const showContracts = (e, item) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setHover({ item, top: rect.bottom + 6, left: rect.left + 16 });
   };
 
   useEffect(() => {
@@ -59,6 +77,7 @@ export default function MyDatasetsDashboard() {
   }, [token, hasDataProvider]);
 
   const openDelete = item => setModal({ open: true, item });
+
   const closeDelete = () => setModal({ open: false, item: null });
 
   const confirmDelete = async () => {
@@ -81,20 +100,7 @@ export default function MyDatasetsDashboard() {
 
   return (
     <div>
-      {hasInfraProvider && hasDataProvider ? (
-        <div className="cat-tabs" style={{ marginBottom: "16px" }}>
-          <button type="button" className="cat-tab cat-tab--active">
-            Datasets
-          </button>
-          <button
-            type="button"
-            className="cat-tab"
-            onClick={() => navigate("/app/services/infra-policy/my", { state: { returnTo } })}
-          >
-            Infrastructure
-          </button>
-        </div>
-      ) : null}
+      <ManageTabs returnTo={returnTo} />
       <div className="page-header">
         <div className="page-header-title">
           <h3 className="section-title" style={{ marginBottom: 0 }}>My Datasets</h3>
@@ -112,6 +118,14 @@ export default function MyDatasetsDashboard() {
             Back
           </button>
           <button
+            className="btn btn-secondary"
+            style={{ width: "auto" }}
+            type="button"
+            onClick={() => setShowActions(v => !v)}
+          >
+            {showActions ? "Hide Actions" : "Actions"}
+          </button>
+          <button
             className="btn btn-primary"
             style={{ width: "auto" }}
             type="button"
@@ -126,8 +140,6 @@ export default function MyDatasetsDashboard() {
         </div>
       </div>
 
-      {hasDataProvider ? <ContractSignRequests token={token} /> : null}
-
       {error ? <div className="error-message">{error}</div> : null}
 
       <div className="card" style={{ padding: 0 }}>
@@ -137,31 +149,44 @@ export default function MyDatasetsDashboard() {
               <tr>
                 <th>Dataset ID</th>
                 <th>Name</th>
-                <th>Application</th>
-                <th>Access Level</th>
+                <th>Contracts</th>
                 <th>Issued</th>
-                <th style={{ width: "180px" }}>Actions</th>
+                {showActions ? <th style={{ width: "180px" }}>Actions</th> : null}
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="muted">Loading...</td>
+                  <td colSpan={showActions ? 5 : 4} className="muted">Loading...</td>
                 </tr>
               ) : datasets.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="muted">No datasets registered yet</td>
+                  <td colSpan={showActions ? 5 : 4} className="muted">No datasets registered yet</td>
                 </tr>
               ) : (
                 datasets.map(item => (
-                  <tr key={item.item_id}>
+                  <tr
+                    key={item.item_id}
+                    onMouseEnter={e => showContracts(e, item)}
+                    onMouseLeave={() => setHover(null)}
+                  >
                     <td>{item.item_id}</td>
                     <td>{item.name}</td>
-                    <td>{item.application}</td>
                     <td>
-                      <span className="table-badge table-badge--neutral">{item.access_level}</span>
+                      {(contractsByDataset[item.item_id] || []).length === 0 ? (
+                        <span className="muted">—</span>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                          {contractsByDataset[item.item_id].map(c => (
+                            <code key={c.job_id} style={{ fontSize: "12px" }}>
+                              {c.contract_id}
+                            </code>
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td>{formatDate(item.issued_at)}</td>
+                    {showActions ? (
                     <td>
                       <div style={{ display: "flex", gap: "8px" }}>
                         <button
@@ -185,6 +210,7 @@ export default function MyDatasetsDashboard() {
                         </button>
                       </div>
                     </td>
+                    ) : null}
                   </tr>
                 ))
               )}
@@ -192,6 +218,30 @@ export default function MyDatasetsDashboard() {
           </table>
         </div>
       </div>
+
+      {hover ? (
+        <div className="dataset-contracts-popover" style={{ top: hover.top, left: hover.left }}>
+          <div className="dataset-contracts-popover-title">
+            Contracts using {hover.item.name || hover.item.item_id}
+          </div>
+          {contractsError ? (
+            <div className="muted">Couldn't load contracts: {contractsError}</div>
+          ) : (contractsByDataset[hover.item.item_id] || []).length === 0 ? (
+            <div className="muted">Not used in any contracts</div>
+          ) : (
+            <ul>
+              {contractsByDataset[hover.item.item_id].map(c => (
+                <li key={c.job_id}>
+                  <code>{c.contract_id}</code>
+                  <span>
+                    {(c.technique || "—").toUpperCase()} · {c.job_state} · you: {c.status}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
 
       <Modal
         open={modal.open}
