@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import {
-  previewContract, startTeeSession, getTeeSessionStatus,
+  previewContract, runTeeJob, /* startTeeSession, */ getTeeSessionStatus,
   downloadTeeSessionOutput, terminateTeeSession, getContractSignatures,
 } from "../api/workloads";
 import {
   listAvailableDatasets, listAvailableInfrastructure, getInfrastructureDetails,
 } from "../api/roleRequests";
 import ContractPreviewModal from "../components/ContractPreviewModal";
+import TeeJobProgress from "../components/TeeJobProgress";
 import {
   Database, Search, Server, Play, X, HardDrive, FileText, ChevronDown, ShieldCheck,
-  CheckCircle2, AlertCircle, Download, Loader2, RefreshCw, Square,
+  CheckCircle2, AlertCircle, Download, Loader2, RefreshCw, Square, Cpu,
 } from "lucide-react";
 
 // How often to poll gov_layer for the TEE session's status once started.
@@ -18,6 +19,14 @@ const TEE_SESSION_POLL_MS = 5000;
 
 // Statuses where the session is still in flight and worth polling.
 const TEE_SESSION_ACTIVE = new Set(["provisioning", "attesting", "running"]);
+
+// TEE only: the workload to run inside the enclave. Hardcoded for now — no
+// catalogue of registered applications exists yet. The selected id is sent as
+// applicationId and lands in the contract's application_providers party; its
+// image/resources come from gov_layer's services.KnownWorkloads (keep in step).
+const TEE_WORKLOADS = [
+  { id: "mnist", name: "MNIST" },
+];
 
 const TEE_SESSION_LABELS = {
   provisioning: "Starting the confidential VM (cold boot can take a minute)…",
@@ -93,6 +102,8 @@ export default function WorkloadForm() {
   // Infrastructure selection (InfraCat) only applies to SMPC — Spider/FL/TEE
   // never show or require it.
   const isSMPCTechnique = technique === "SMPC";
+  // Workload selection only applies to TEE — exactly one is required.
+  const isTEETechnique = technique === "TEE";
 
   // Redirect admins
   useEffect(() => {
@@ -100,14 +111,19 @@ export default function WorkloadForm() {
   }, [isAdmin]);
 
   // Catalogue state
-  // SMPC only: which catalogue tab is active. Datasets/TEE/FL never see tabs
-  // at all, so this only matters when isSMPCTechnique is true.
+  // SMPC/TEE only: which catalogue tab is active ("dataset" | "infra" for
+  // SMPC, "dataset" | "workload" for TEE). FL never sees tabs at all.
   const [activeTab, setActiveTab] = useState("dataset");
+  const showInfraTab = isSMPCTechnique && activeTab === "infra";
+  const showWorkloadTab = isTEETechnique && activeTab === "workload";
   // Each tab keeps its own independent search term.
   const [datasetSearchQuery, setDatasetSearchQuery] = useState("");
   const [infraSearchQuery, setInfraSearchQuery] = useState("");
   // Any number >= 1 of datasets may be selected (was a single scalar id).
   const [selectedDatasetIds, setSelectedDatasetIds] = useState([]);
+  // TEE only: single selection from TEE_WORKLOADS (null until picked).
+  const [selectedWorkloadId, setSelectedWorkloadId] = useState(null);
+  const selectedWorkload = TEE_WORKLOADS.find(w => w.id === selectedWorkloadId) || null;
 
   // Real, registered datasets (from APD via aaa's /available-datasets) — each
   // a {id, name} pair (id is the real item_id a by-item policy lookup needs;
@@ -186,6 +202,8 @@ export default function WorkloadForm() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isTerminating, setIsTerminating] = useState(false);
   const [downloadError, setDownloadError] = useState(null);
+  // Run TEE's coordinator job: null | { job, subContract } | { error }
+  const [teeJob, setTeeJob] = useState(null);
   // TEE and SMPC: each data provider must sign the generated contract's hash
   // before a run is allowed (gov_layer enforces this too).
   const [signatureStatus, setSignatureStatus] = useState(null);
@@ -258,12 +276,14 @@ export default function WorkloadForm() {
   const handleGenerateContract = async () => {
     if (selectedDatasetIds.length === 0 || !technique) return;
     if (isSMPCTechnique && selectedInfraIds.length !== 2) return;
+    if (isTEETechnique && !selectedWorkloadId) return;
     setError(null);
     setGeneratedContract(null);
     setSignatureStatus(null);
     setSignatureError(null);
     setTeeSession(null);
     setDownloadError(null);
+    setTeeJob(null);
     setIsGenerating(true);
     try {
       if (!token) throw new Error("MISSING_AUTH_TOKEN");
@@ -271,6 +291,7 @@ export default function WorkloadForm() {
         datasets: selectedDatasets.map(d => ({ datasetId: d.id, datasetName: d.name })),
         technique,
         infraIds: selectedInfraIds,
+        ...(isTEETechnique ? { applicationId: selectedWorkloadId } : {}),
       });
       const contract = res?.contract || null;
       setGeneratedContract(contract);
@@ -288,25 +309,39 @@ export default function WorkloadForm() {
     }
   };
 
+  // Run TEE: gov_layer builds the CreateJob sub-contract from this contract and
+  // runs grpcurl against the Kata coordinator. The old Azure confidential-VM
+  // session call is kept commented out below.
   const handleRunTee = async () => {
-    if (!datasetUrl) return;
-    setDownloadError(null);
+    if (!generatedContract?.contract_id) return;
+    setTeeJob(null);
     setIsStartingRun(true);
     try {
-      const res = await startTeeSession(token, {
-        datasetUrl,
-        // TEE session run is still single-dataset — use the first selected
-        // one, matching datasetUrl's own "first dataset" fallback above.
-        datasetId: selectedDatasetIds[0],
-        datasetName: selectedDatasets[0]?.name,
-        contractId: generatedContract?.contract_id,
-      });
-      setTeeSession({ sessionId: res.sessionId, status: res.status || "provisioning", error: null });
+      const res = await runTeeJob(token, generatedContract.contract_id);
+      setTeeJob({ job: res.job || {}, subContract: res.subContract });
     } catch (err) {
-      setTeeSession({ sessionId: null, status: "failed", error: err.message || "Failed to start TEE session" });
+      setTeeJob({ error: err.message || "Run TEE failed" });
     } finally {
       setIsStartingRun(false);
     }
+    // if (!datasetUrl) return;
+    // setDownloadError(null);
+    // setIsStartingRun(true);
+    // try {
+    //   const res = await startTeeSession(token, {
+    //     datasetUrl,
+    //     // TEE session run is still single-dataset — use the first selected
+    //     // one, matching datasetUrl's own "first dataset" fallback above.
+    //     datasetId: selectedDatasetIds[0],
+    //     datasetName: selectedDatasets[0]?.name,
+    //     contractId: generatedContract?.contract_id,
+    //   });
+    //   setTeeSession({ sessionId: res.sessionId, status: res.status || "provisioning", error: null });
+    // } catch (err) {
+    //   setTeeSession({ sessionId: null, status: "failed", error: err.message || "Failed to start TEE session" });
+    // } finally {
+    //   setIsStartingRun(false);
+    // }
   };
 
   const handleDownloadResult = async () => {
@@ -380,12 +415,15 @@ export default function WorkloadForm() {
     return () => clearInterval(interval);
   }, [teeSession?.sessionId, teeSession?.status, token]);
 
-  const canRun = selectedDatasetIds.length > 0 && technique && (!isSMPCTechnique || selectedInfraIds.length === 2);
+  const canRun = selectedDatasetIds.length > 0 && technique
+    && (!isSMPCTechnique || selectedInfraIds.length === 2)
+    && (!isTEETechnique || !!selectedWorkloadId);
   const missingItems = [];
   if (selectedDatasetIds.length === 0) missingItems.push("at least one dataset");
   if (isSMPCTechnique && selectedInfraIds.length !== 2) {
     missingItems.push(`exactly 2 infrastructure providers (${selectedInfraIds.length} selected)`);
   }
+  if (isTEETechnique && !selectedWorkloadId) missingItems.push("a workload");
   if (!technique) missingItems.push("service (go back to Services and start from SMPC or Anonymization)");
 
   return (
@@ -393,14 +431,18 @@ export default function WorkloadForm() {
       {/* Left sidebar */}
       <aside className="cat-sidebar">
         <div className="cat-sidebar__header">
-          {isSMPCTechnique && activeTab === "infra" ? <HardDrive size={16} /> : <Database size={16} />}
-          <span>{isSMPCTechnique && activeTab === "infra" ? "Infrastructure" : "Datasets"}</span>
+          {showInfraTab ? <HardDrive size={16} /> : showWorkloadTab ? <Cpu size={16} /> : <Database size={16} />}
+          <span>{showInfraTab ? "Infrastructure" : showWorkloadTab ? "Workloads" : "Datasets"}</span>
         </div>
         <div className="cat-sidebar__nav" style={{ padding: "10px 14px", fontSize: 13, color: "var(--text-light)" }}>
-          {isSMPCTechnique && activeTab === "infra"
+          {showInfraTab
             ? "Registered infrastructure isn't categorized yet — search by name or region instead."
-            : "Registered datasets aren't categorized yet — search by name instead."}
+            : showWorkloadTab
+              ? "Pick the one workload the TEE should run on the selected dataset(s)."
+              : "Registered datasets aren't categorized yet — search by name instead."}
         </div>
+        {/* Run TEE progress: polls the coordinator's GetJob every 5s. */}
+        {teeJob?.job?.jobId && <TeeJobProgress token={token} jobId={teeJob.job.jobId} />}
       </aside>
 
       {/* Main content */}
@@ -427,9 +469,30 @@ export default function WorkloadForm() {
               </button>
             </div>
           )}
+          {isTEETechnique && (
+            <div className="cat-tabs">
+              <button
+                type="button"
+                className={`cat-tab${activeTab === "dataset" ? " cat-tab--active" : ""}`}
+                onClick={() => setActiveTab("dataset")}
+              >
+                <Database size={14} />
+                Datasets
+              </button>
+              <button
+                type="button"
+                className={`cat-tab${activeTab === "workload" ? " cat-tab--active" : ""}`}
+                onClick={() => setActiveTab("workload")}
+              >
+                <Cpu size={14} />
+                Workload
+              </button>
+            </div>
+          )}
+          {!showWorkloadTab && (
           <div className="cat-search">
             <Search size={14} className="cat-search__icon" />
-            {isSMPCTechnique && activeTab === "infra" ? (
+            {showInfraTab ? (
               <input
                 className="cat-search__input"
                 placeholder="Search infrastructure..."
@@ -445,6 +508,7 @@ export default function WorkloadForm() {
               />
             )}
           </div>
+          )}
           <button
             className="btn btn-secondary cat-back-btn"
             onClick={() => navigate(returnTo)}
@@ -455,7 +519,25 @@ export default function WorkloadForm() {
 
         {/* Content area */}
         <div className="cat-content">
-          {isSMPCTechnique && activeTab === "infra" ? (
+          {showWorkloadTab ? (
+            /* Workload tab — TEE only, single selection (clicking the selected one clears it). */
+            <div className="cat-list">
+              <div className="cat-simple-list">
+                {TEE_WORKLOADS.map(w => (
+                  <button
+                    key={w.id}
+                    type="button"
+                    className={`cat-simple-item${selectedWorkloadId === w.id ? " cat-simple-item--selected" : ""}`}
+                    onClick={() => setSelectedWorkloadId(prev => (prev === w.id ? null : w.id))}
+                  >
+                    <Cpu size={16} />
+                    <span className="cat-simple-item__name">{w.name}</span>
+                    {selectedWorkloadId === w.id && <CheckCircle2 size={15} />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : showInfraTab ? (
             /* Infrastructure Catalogue (InfraCat) tab — SMPC only. */
             <div className="cat-list">
               {infraLoading ? (
@@ -532,7 +614,7 @@ export default function WorkloadForm() {
               )}
             </div>
           ) : (
-            /* Dataset tab — default, and the only tab for FL/TEE (no tab bar shown at all). */
+            /* Dataset tab — default, and the only tab for FL (no tab bar shown at all). */
             <div className="cat-list">
               {datasetsLoading ? (
                 <div className="cat-empty">
@@ -620,6 +702,28 @@ export default function WorkloadForm() {
             )}
           </div>
         </div>
+
+        {/* Workload slot — TEE only, exactly 1 required */}
+        {isTEETechnique && (
+          <div className={`cat-slot${selectedWorkload ? " cat-slot--filled" : ""}`}>
+            <div className="cat-slot__icon">
+              <Cpu size={16} />
+            </div>
+            <div className="cat-slot__info">
+              <div className="cat-slot__label">Workload</div>
+              {selectedWorkload ? (
+                <div className="cat-slot__value" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <span>{selectedWorkload.name}</span>
+                  <button className="cat-icon-btn cat-slot__clear" onClick={() => setSelectedWorkloadId(null)} title="Clear">
+                    <X size={13} />
+                  </button>
+                </div>
+              ) : (
+                <div className="cat-slot__placeholder">No workload selected</div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Infrastructure slot(s) — SMPC only, exactly 2 required */}
         {isSMPCTechnique && (
@@ -731,14 +835,28 @@ export default function WorkloadForm() {
                       onClick={handleRunTee}
                     >
                       {isStartingRun ? (
-                        <><Loader2 size={14} className="spin" style={{ marginRight: 6 }} />Starting TEE session...</>
+                        <><Loader2 size={14} className="spin" style={{ marginRight: 6 }} />Submitting job...</>
                       ) : (
                         <><Play size={14} style={{ marginRight: 6 }} />Run TEE</>
                       )}
                     </button>
                     <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-light)" }}>
-                      This starts a real confidential VM — it bills while running.
+                      Submits this contract's workload to the Kata coordinator (grpcurl CreateJob).
+                      {/* This starts a real confidential VM — it bills while running. */}
                     </div>
+                    {teeJob?.error && (
+                      <div className="error-message" style={{ marginTop: 10, fontSize: 13 }}>
+                        {teeJob.error}
+                      </div>
+                    )}
+                    {teeJob?.job && (
+                      <div style={{ marginTop: 10, fontSize: 13 }}>
+                        <div style={{ color: "var(--success, #2e7d32)", marginBottom: 4 }}>Job submitted ✓</div>
+                        <div>Job ID: <code>{teeJob.job.jobId || "—"}</code></div>
+                        <div>State: {teeJob.job.state || "—"}</div>
+                        {teeJob.job.reason && <div>Reason: {teeJob.job.reason}</div>}
+                      </div>
+                    )}
                     {teeSession?.status === "failed" && (
                       <div className="error-message" style={{ marginTop: 10, fontSize: 13 }}>
                         {teeSession.error || "TEE session failed"}

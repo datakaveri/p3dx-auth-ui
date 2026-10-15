@@ -69,9 +69,6 @@ function IconClipboard() {
 function IconUser() {
   return <svg {...ICON_PROPS}><circle cx="10" cy="7" r="3" /><path d="M4 17c0-3.3 2.7-6 6-6s6 2.7 6 6" /></svg>;
 }
-function IconLock() {
-  return <svg {...ICON_PROPS}><rect x="5" y="9" width="10" height="8" rx="1.5" /><path d="M7 9V6.5a3 3 0 0 1 6 0V9" /></svg>;
-}
 
 export default function PolicyForm() {
   const { user, isAdmin, token } = useOutletContext();
@@ -96,6 +93,7 @@ export default function PolicyForm() {
     datasetId: itemId || generateDatasetId(),
     datasetName: "",
     dataUrl: "",
+    keyResourcePath: "",
     application: APPLICATIONS[0].id,
     allowedOrg: ORGS[0].id,
     accessLevel: "read",
@@ -157,6 +155,7 @@ export default function PolicyForm() {
           ...f,
           datasetName: rules.dataset?.name || "",
           dataUrl: res.data.data_url || "",
+          keyResourcePath: rules.key_resource_path || "",
           application: rules.application?.id || f.application,
           allowedOrg: rules.allowedOrg?.id || f.allowedOrg,
           accessLevel: rules.accessLevel || f.accessLevel,
@@ -222,6 +221,10 @@ export default function PolicyForm() {
         accessLevel: form.accessLevel,
         purpose: form.purpose,
         notes: form.notes,
+        // KBS key path for this dataset's decryption key — copied into the
+        // contract's data_providers[].trustee.key_resource_path (the KBS URL
+        // itself is gov_layer-wide). Blank lets gov_layer derive one.
+        key_resource_path: form.keyResourcePath.trim(),
         allowed_users: toList(form.allowedUsers),
         allowed_roles: toList(form.allowedRoles),
         required_roles: toList(form.requiredRoles),
@@ -322,6 +325,18 @@ export default function PolicyForm() {
                   placeholder="e.g. https://storage.example.com/dataset.csv"
                   value={form.dataUrl}
                   onChange={e => setForm(f => ({ ...f, dataUrl: e.target.value }))}
+                  disabled={submitted}
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label>Key Resource Path</label>
+                <input
+                  className="input"
+                  type="text"
+                  placeholder="e.g. default/mnist-key/dataset1"
+                  value={form.keyResourcePath}
+                  onChange={e => setForm(f => ({ ...f, keyResourcePath: e.target.value }))}
                   disabled={submitted}
                 />
               </div>
@@ -445,116 +460,6 @@ export default function PolicyForm() {
                   disabled={submitted}
                 />
               </div>
-            </div>
-          </div>
-
-          <div className="form-section">
-            <div className="form-section-head">
-              <div className="form-section-icon"><IconLock /></div>
-              <div className="form-section-titles">
-                <h4>Access Rules</h4>
-                <span>Fine-grained constraints &amp; notes</span>
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <input
-                  type="checkbox"
-                  checked={form.isPrivate}
-                  onChange={e => setForm(f => ({ ...f, isPrivate: e.target.checked }))}
-                  disabled={submitted}
-                />
-                Private dataset
-              </label>
-            </div>
-
-            <div className="form-group">
-              <label>Allowed Users (comma-separated)</label>
-              <input
-                className="input"
-                type="text"
-                value={form.allowedUsers}
-                onChange={e => setForm(f => ({ ...f, allowedUsers: e.target.value }))}
-                placeholder="e.g. alice, bob"
-                disabled={submitted}
-              />
-            </div>
-
-            <div className="grid">
-              <div className="form-group">
-                <label>Allowed Roles (comma-separated)</label>
-                <input
-                  className="input"
-                  type="text"
-                  value={form.allowedRoles}
-                  onChange={e => setForm(f => ({ ...f, allowedRoles: e.target.value }))}
-                  placeholder="e.g. data-provider, admin"
-                  disabled={submitted}
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Required Roles (comma-separated)</label>
-                <input
-                  className="input"
-                  type="text"
-                  value={form.requiredRoles}
-                  onChange={e => setForm(f => ({ ...f, requiredRoles: e.target.value }))}
-                  placeholder="e.g. output-owner"
-                  disabled={submitted}
-                />
-              </div>
-            </div>
-
-            <div className="grid">
-              <div className="form-group">
-                <label>Allowed Scopes (comma-separated)</label>
-                <input
-                  className="input"
-                  type="text"
-                  value={form.allowedScopes}
-                  onChange={e => setForm(f => ({ ...f, allowedScopes: e.target.value }))}
-                  placeholder="e.g. read, compute"
-                  disabled={submitted}
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Required Scopes (comma-separated)</label>
-                <input
-                  className="input"
-                  type="text"
-                  value={form.requiredScopes}
-                  onChange={e => setForm(f => ({ ...f, requiredScopes: e.target.value }))}
-                  placeholder="e.g. openid"
-                  disabled={submitted}
-                />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label>Allowed Actions (comma-separated)</label>
-              <input
-                className="input"
-                type="text"
-                value={form.allowedActions}
-                onChange={e => setForm(f => ({ ...f, allowedActions: e.target.value }))}
-                placeholder="e.g. compute, aggregate"
-                disabled={submitted}
-              />
-            </div>
-
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Notes</label>
-              <textarea
-                className="input"
-                style={{ minHeight: "96px" }}
-                value={form.notes}
-                onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                placeholder="Any additional constraints..."
-                disabled={submitted}
-              />
             </div>
           </div>
 

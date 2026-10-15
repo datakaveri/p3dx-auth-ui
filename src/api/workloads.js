@@ -32,6 +32,62 @@ export async function runWorkload(token, { datasetId, applicationId }) {
   return data;
 }
 
+// Run TEE: gov_layer builds the CreateJob sub-contract from the generated
+// contract and runs grpcurl against the Kata coordinator (via p3dx-aaa).
+// Resolves to { status, subContract, job }.
+export async function runTeeJob(token, contractId) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/workloads/tee-run`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ contractId }),
+  });
+
+  const data = await parseJsonSafe(res);
+
+  if (!res.ok || data?.status === "FAILED") {
+    const msg = data?.error || data?.message || `Run TEE failed (${res.status})`;
+    throw new Error(msg);
+  }
+
+  return data;
+}
+
+// Run TEE progress: the coordinator job's current state (gov_layer runs
+// grpcurl GetJob, via p3dx-aaa). Resolves to { status, job }.
+export async function getTeeJob(token, jobId) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/workloads/tee-jobs/${encodeURIComponent(jobId)}`, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+
+  const data = await parseJsonSafe(res);
+
+  if (!res.ok || data?.status === "FAILED") {
+    const msg = data?.error || data?.message || `Getting TEE job failed (${res.status})`;
+    throw new Error(msg);
+  }
+
+  return data;
+}
+
+// View Result: the TEE job's result blob, fetched server-side by gov_layer.
+// Resolves to { status, result } (JSON) or { status, output } (text).
+export async function getTeeJobResult(token, jobId) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/workloads/tee-jobs/${encodeURIComponent(jobId)}/result`, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+
+  const data = await parseJsonSafe(res);
+
+  if (!res.ok || data?.status === "FAILED") {
+    const msg = data?.error || data?.message || `Getting TEE result failed (${res.status})`;
+    throw new Error(msg);
+  }
+
+  return data;
+}
+
 // Whether a generated TEE/SMPC contract's data-provider signatures match
 // (re-verified by gov_layer): {signatures: "matching"|"not matching", tee: "can run"|"cannot run"}.
 export async function getContractSignatures(token, contractId) {
@@ -54,12 +110,17 @@ export async function getContractSignatures(token, contractId) {
 // datasetName is its display name, sent separately so gov_layer can look
 // the policy up by the real id while still labeling the contract with the
 // name a human recognizes. infraIds is the InfraCat selection (SMPC only,
-// exactly 2); omitted for TEE/FL.
-export async function previewContract(token, { datasets, technique, infraIds }) {
+// exactly 2); omitted for TEE/FL. applicationId is the selected workload
+// (TEE only) — becomes the contract's application provider party.
+export async function previewContract(token, { datasets, technique, infraIds, applicationId }) {
   const res = await fetch(`${BACKEND_URL}/p3dx/workloads/preview-contract`, {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify({ datasets, technique, ...(infraIds?.length ? { infraIds } : {}) }),
+    body: JSON.stringify({
+      datasets, technique,
+      ...(infraIds?.length ? { infraIds } : {}),
+      ...(applicationId ? { applicationId } : {}),
+    }),
   });
 
   const data = await parseJsonSafe(res);

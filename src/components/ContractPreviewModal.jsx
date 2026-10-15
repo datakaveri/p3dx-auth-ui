@@ -97,6 +97,9 @@ export default function ContractPreviewModal({ open, contract, onClose }) {
               <Field label="Compute Choice" value={contract.compute_choice} />
               <Field label="Contract ID" value={contract.contract_id} mono />
               <Field label="Version" value={contract.version} />
+              <Field label="KBS URL" value={contract.trustee?.kbsUrl} mono />
+              <Field label="Key Resource Path" value={contract.trustee?.keyResourcePath} mono />
+              <Field label="Callback URL" value={contract.callbackUrl} mono />
             </div>
             {contract.contract_hash && (
               <div className="cpm-field" style={{ marginTop: 10 }}>
@@ -135,6 +138,8 @@ export default function ContractPreviewModal({ open, contract, onClose }) {
                 <Field label="Dataset" value={dp.dataset_name} />
                 <Field label="Dataset Version" value={dp.dataset_version} />
                 <Field label="Data URL" value={dp.data_url} mono />
+                <Field label="KBS URL" value={dp.trustee?.kbs_url} mono />
+                <Field label="Key Resource Path" value={dp.trustee?.key_resource_path} mono />
                 <Constraints constraints={dp.constraints} />
                 <SignedBadge signature={dp.signature} />
               </PartyCard>
@@ -145,6 +150,9 @@ export default function ContractPreviewModal({ open, contract, onClose }) {
                 <Field label="Name" value={ap.name || "Unknown Application Provider"} />
                 <Field label="App Name" value={ap.app_name} />
                 <Field label="Container Image" value={ap.container_image} mono />
+                <Field label="Workload Image" value={contract.workload?.image} mono />
+                <Field label="Workload CPU" value={contract.workload?.resources?.cpu} mono />
+                <Field label="Workload Memory" value={contract.workload?.resources?.memory} mono />
                 <Field label="Container Digest" value={ap.container_digest} mono />
                 <Constraints constraints={ap.constraints} />
                 <SignedBadge signature={ap.signature} />
