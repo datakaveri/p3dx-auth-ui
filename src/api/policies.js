@@ -1,4 +1,5 @@
 import { BACKEND_URL } from "../config";
+import { authFetch } from "./session";
 
 function authHeaders(token) {
   return {
@@ -8,7 +9,7 @@ function authHeaders(token) {
 }
 
 export async function submitPolicy(token, policy) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/policy`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/policy`, {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify(policy),
@@ -32,7 +33,7 @@ export async function submitPolicy(token, policy) {
 // Lists the logged-in infra-provider's own infrastructure registrations —
 // backs the "My Infrastructure" dashboard.
 export async function listMyInfraPolicies(token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/policy/mine`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/policy/mine`, {
     headers: authHeaders(token),
   });
 
@@ -54,7 +55,7 @@ export async function listMyInfraPolicies(token) {
 // Soft-deletes one infrastructure entry, by Infrastructure ID (item_id) —
 // only ever succeeds for the caller's own entries (enforced server-side).
 export async function deleteInfraPolicy(token, itemId) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/policy/by-item/${encodeURIComponent(itemId)}`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/policy/by-item/${encodeURIComponent(itemId)}`, {
     method: "DELETE",
     headers: authHeaders(token),
   });
@@ -77,7 +78,7 @@ export async function deleteInfraPolicy(token, itemId) {
 // Lists the logged-in data-provider's own dataset access policies — backs
 // the "My Datasets" dashboard. Mirrors listMyInfraPolicies exactly.
 export async function listMyDatasetPolicies(token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/policy/mine-datasets`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/policy/mine-datasets`, {
     headers: authHeaders(token),
   });
 
@@ -100,7 +101,7 @@ export async function listMyDatasetPolicies(token) {
 // as { data: { "<item_id>": [{ contract_id, job_id, technique, job_state,
 // status, created_at }] } } — backs the hover popover on "My Datasets".
 export async function listMyDatasetContracts(token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/jobs/mine-datasets`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/jobs/mine-datasets`, {
     headers: authHeaders(token),
   });
 
@@ -123,7 +124,7 @@ export async function listMyDatasetContracts(token) {
 // succeeds for the caller's own entries (enforced server-side). Mirrors
 // deleteInfraPolicy exactly.
 export async function deleteDatasetPolicy(token, itemId) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/policy/by-item-dataset/${encodeURIComponent(itemId)}`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/policy/by-item-dataset/${encodeURIComponent(itemId)}`, {
     method: "DELETE",
     headers: authHeaders(token),
   });
@@ -148,7 +149,7 @@ export async function deleteDatasetPolicy(token, itemId) {
 // endpoint (ownership-checked server-side), so it can safely return every
 // field PolicyForm.jsx needs to pre-fill, not just a stripped-down subset.
 export async function getMyDatasetDetails(token, itemId) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/policy/mine-datasets/${encodeURIComponent(itemId)}`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/policy/mine-datasets/${encodeURIComponent(itemId)}`, {
     headers: authHeaders(token),
   });
 

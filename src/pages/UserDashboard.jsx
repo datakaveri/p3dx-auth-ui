@@ -135,7 +135,7 @@ export default function UserDashboard() {
       </div>
 
       <div style={{ marginBottom: "18px" }}>
-        <h3 className="section-title">Actions</h3>
+        <h3 className="section-title">{isTEE ? "Start New Compute" : "Actions"}</h3>
         <div className="action-grid">
           {/* Moved to the sidebar's "Policy (Dataset)" link (AppShell.jsx):
           {hasDataProvider ? (

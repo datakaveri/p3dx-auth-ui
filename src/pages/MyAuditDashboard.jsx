@@ -10,6 +10,10 @@ const REFRESH_MS = 5000;
 // tone picks the badge colour: ok / wait / bad / live / neutral.
 function activityStatus(r) {
   switch (r.last_event?.event) {
+    case "run_execution_failed":
+      return { label: "TEE run failed", tone: "bad" };
+    case "run_succeeded":
+      return { label: "TEE run succeeded", tone: "ok" };
     case "run_refused":
       return { label: "Run refused", tone: "bad" };
     case "edited":
@@ -40,6 +44,17 @@ function activityStatus(r) {
       return { label: r.status || "—", tone: "neutral" };
   }
 }
+
+// gov_layer records how a TEE run ended (tee_outcome.go) as
+// "TEE run failed: <coordinator's error> (coordinator job <id>)". Pull out
+// the coordinator's exact error text so the Audit page shows it as-is.
+function runError(detail) {
+  return (detail || "")
+    .replace(/^TEE run (failed|cancelled):\s*/, "")
+    .replace(/\s*\(coordinator job [^)]*\)\s*$/, "");
+}
+
+const countEvents = (r, event) => (r.events || []).filter(e => e.event === event).length;
 
 function timeAgo(value, now) {
   if (!value) return "—";
@@ -165,6 +180,9 @@ export default function MyAuditDashboard() {
       signedOrFinal: filteredRows.filter(r => ["signed", "final", "tee_enabled"].includes(r.status)).length,
       awaiting: count("requested"),
       tee: count("tee_enabled"),
+      // TEE runs that ended in failure inside the enclave (every run, not
+      // just each row's latest).
+      failedRuns: filteredRows.reduce((n, r) => n + countEvents(r, "run_execution_failed"), 0),
       // Datasets with a contract whose TEE run is switched on (job_state
       // tee_enabled) — "live". Not narrowed by the filter, like inUse.
       live: new Set(rows.filter(r => r.job_state === "tee_enabled").map(r => r.item_id)).size,
@@ -175,8 +193,10 @@ export default function MyAuditDashboard() {
   const usage = useMemo(() => {
     const byItem = {};
     for (const r of rows) {
-      const u = (byItem[r.item_id] ||= { item_id: r.item_id, total: 0, statuses: {}, techniques: new Set(), last: null, live: false });
+      const u = (byItem[r.item_id] ||= { item_id: r.item_id, total: 0, statuses: {}, techniques: new Set(), last: null, live: false, failedRuns: 0, succeededRuns: 0 });
       u.total += 1;
+      u.failedRuns += countEvents(r, "run_execution_failed");
+      u.succeededRuns += countEvents(r, "run_succeeded");
       u.statuses[r.status] = (u.statuses[r.status] || 0) + 1;
       if (r.technique) u.techniques.add(r.technique.toUpperCase());
       if (r.job_state === "tee_enabled") u.live = true;
@@ -268,6 +288,12 @@ export default function MyAuditDashboard() {
               <div className="stat-card__label">TEE runs enabled</div>
               <div className="stat-card__value">{loading ? "—" : stats.tee}</div>
             </div>
+            <div className="stat-card">
+              <div className="stat-card__label">Failed TEE runs</div>
+              <div className={`stat-card__value${stats.failedRuns ? " stat-card__value--red" : ""}`}>
+                {loading ? "—" : stats.failedRuns}
+              </div>
+            </div>
           </div>
 
           <h4 className="section-title" style={{ fontSize: "16px" }}>Activity</h4>
@@ -309,7 +335,18 @@ export default function MyAuditDashboard() {
                             {r.technique ? <div className="muted" style={{ fontSize: "12px" }}>{r.technique.toUpperCase()}</div> : null}
                           </td>
                           <td>{r.consumer || "—"}</td>
-                          <td style={{ maxWidth: "420px" }}>{r.last_event?.detail || "—"}</td>
+                          <td style={{ maxWidth: "420px" }}>
+                            {r.last_event?.event === "run_execution_failed" ? (
+                              <>
+                                <div className="audit-caption audit-caption--failed">{st.label}</div>
+                                <div className="audit-error">{runError(r.last_event.detail)}</div>
+                              </>
+                            ) : r.last_event?.event === "run_succeeded" ? (
+                              <div className="audit-caption audit-caption--ok">{st.label}</div>
+                            ) : (
+                              r.last_event?.detail || "—"
+                            )}
+                          </td>
                           <td style={{ whiteSpace: "nowrap" }}>{timeAgo(r.updated_at || r.created_at, updatedAt || new Date())}</td>
                         </tr>,
                       ];
@@ -320,7 +357,13 @@ export default function MyAuditDashboard() {
                               {r.events?.length ? (
                                 <ol className="audit-timeline">
                                   {[...r.events].reverse().map((e, i) => (
-                                    <li key={i}>
+                                    <li
+                                      key={i}
+                                      className={
+                                        e.event === "run_execution_failed" ? "audit-timeline--failed"
+                                          : e.event === "run_succeeded" ? "audit-timeline--ok" : undefined
+                                      }
+                                    >
                                       <time>{new Date(e.at).toLocaleString()}</time>
                                       <span>{e.detail}{e.actor ? ` — ${e.actor}` : ""}</span>
                                     </li>
@@ -384,6 +427,12 @@ export default function MyAuditDashboard() {
                                   {s.label}: {u.statuses[s.key]}
                                 </span>
                               ))}
+                              {u.failedRuns ? (
+                                <span className="table-badge audit-badge--failed">Failed runs: {u.failedRuns}</span>
+                              ) : null}
+                              {u.succeededRuns ? (
+                                <span className="table-badge audit-badge--ok">Succeeded: {u.succeededRuns}</span>
+                              ) : null}
                             </div>
                           </td>
                           <td>{[...u.techniques].join(", ") || "—"}</td>

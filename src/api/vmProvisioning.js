@@ -1,4 +1,5 @@
 import { ORCHESTRATOR_URL } from "../config";
+import { authFetch } from "./session";
 
 function authHeaders(token) {
   return {
@@ -18,7 +19,7 @@ async function parseJsonSafe(res) {
 // Mints a token identifying this logged-in user so their local
 // terraform/participant-vm/deploy.sh run can report progress back here.
 export async function getVmProvisioningToken(role, token) {
-  const res = await fetch(`${ORCHESTRATOR_URL}/p3dx/vm-provisioning/token`, {
+  const res = await authFetch(`${ORCHESTRATOR_URL}/p3dx/vm-provisioning/token`, {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({ role }),
@@ -38,7 +39,7 @@ export async function getVmProvisioningToken(role, token) {
 // VmProvisioningPanel mount) so a duplicate call for it doesn't spawn a
 // second `az login` - distinct runKeys run fully concurrently.
 export async function triggerAutoProvision(role, token, vmName, runKey, submissionId = null) {
-  const res = await fetch(`${ORCHESTRATOR_URL}/p3dx/vm-provisioning/auto-create`, {
+  const res = await authFetch(`${ORCHESTRATOR_URL}/p3dx/vm-provisioning/auto-create`, {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({ role, vmName, runKey, submissionId }),
@@ -54,7 +55,7 @@ export async function triggerAutoProvision(role, token, vmName, runKey, submissi
 // run, identified by runToken (the `token` returned from triggerAutoProvision
 // above) — one-time, the backend clears it after this succeeds.
 export async function downloadVmPrivateKey(token, runToken) {
-  const res = await fetch(`${ORCHESTRATOR_URL}/p3dx/vm-provisioning/private-key?token=${encodeURIComponent(runToken)}`, {
+  const res = await authFetch(`${ORCHESTRATOR_URL}/p3dx/vm-provisioning/private-key?token=${encodeURIComponent(runToken)}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {

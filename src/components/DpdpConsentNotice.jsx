@@ -43,7 +43,10 @@ function Section({ icon, title, children }) {
 // contract: the full contract JSON. requestedBy: sender username.
 // acknowledged / onAcknowledge: controlled "I have read this notice" box;
 // omit onAcknowledge to render the notice read-only (e.g. already signed).
-export default function DpdpConsentNotice({ contract, requestedBy, acknowledged, onAcknowledge }) {
+// onSave: optional Save button under the box, enabled once it is ticked.
+// beforeSave: optional content shown last, just above Save (e.g. the
+// provider's consent expiry picker).
+export default function DpdpConsentNotice({ contract, requestedBy, acknowledged, onAcknowledge, onSave, beforeSave }) {
   const [showRaw, setShowRaw] = useState(false);
   if (!contract) return null;
 
@@ -98,8 +101,14 @@ export default function DpdpConsentNotice({ contract, requestedBy, acknowledged,
                 <strong>{dp.dataset_name || dp.dataset_id || "Unnamed dataset"}</strong>
                 {dp.dataset_version ? ` (version ${dp.dataset_version})` : ""}
                 {dp.name ? ` from ${dp.name}` : ""}
-                {dp.constraints?.accessibility_level ? `. Access level: ${dp.constraints.accessibility_level}` : ""}
+                {/* {dp.constraints?.accessibility_level ? `. Access level: ${dp.constraints.accessibility_level}` : ""} */}
+                {/* Consent notice never says PUBLIC — shown as PRIVATE instead
+                    (display only; the contract's own accessibility_level is untouched). */}
+                {dp.constraints?.accessibility_level
+                  ? `. Access level: ${dp.constraints.accessibility_level.toUpperCase() === "PUBLIC" ? "PRIVATE" : dp.constraints.accessibility_level}`
+                  : ""}
                 {(dp.constraints?.restricted_to || []).length ? `. Restricted to: ${dp.constraints.restricted_to.join(", ")}` : ""}
+                {dp.constraints?.consent_valid_until ? `. Consent expires: ${formatDate(dp.constraints.consent_valid_until)}` : ""}
               </li>
             ))}
           </ul>
@@ -127,6 +136,12 @@ export default function DpdpConsentNotice({ contract, requestedBy, acknowledged,
               ? <>Valid from <strong>{validFrom || "signing"}</strong> until <strong>{validUntil || "the session ends"}</strong>.</>
               : <Missing>No validity period is set in this contract.</Missing>}
           </li>
+          {datasets.filter(dp => dp.constraints?.consent_valid_until).map((dp, i) => (
+            <li key={`exp-${dp.id || i}`}>
+              Consent from <strong>{dp.name || dp.id}</strong> for {dp.dataset_name || "their dataset"} expires on{" "}
+              <strong>{formatDate(dp.constraints.consent_valid_until)}</strong>; no run starts after it.
+            </li>
+          ))}
         </ul>
       </Section>
 
@@ -155,6 +170,12 @@ export default function DpdpConsentNotice({ contract, requestedBy, acknowledged,
           <input type="checkbox" checked={Boolean(acknowledged)} onChange={e => onAcknowledge(e.target.checked)} />
           <span>I have read this notice and understand what data will be processed, for what purpose, and how I can withdraw consent.</span>
         </label>
+      ) : null}
+      {beforeSave || null}
+      {onAcknowledge && onSave ? (
+        <button type="button" className="btn btn-primary" style={{ width: "auto", marginTop: 12, marginRight: 8 }} disabled={!acknowledged} onClick={onSave}>
+          Save
+        </button>
       ) : null}
 
       <button type="button" className="btn btn-secondary" style={{ width: "auto", marginTop: 12 }} onClick={() => setShowRaw(v => !v)}>

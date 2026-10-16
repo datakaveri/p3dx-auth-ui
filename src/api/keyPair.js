@@ -1,7 +1,8 @@
 import { BACKEND_URL } from "../config";
+import { authFetch } from "./session";
 
 export async function getKeyPairStatus(token, roleName) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/keys/${encodeURIComponent(roleName)}/status`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/keys/${encodeURIComponent(roleName)}/status`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   return res.json();
@@ -36,7 +37,7 @@ export async function generateAndRegisterKeyPair(token, roleName) {
     throw new Error("Private key was not saved — key pair not registered");
   }
 
-  const res = await fetch(`${BACKEND_URL}/p3dx/keys/${encodeURIComponent(roleName)}/public-key`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/keys/${encodeURIComponent(roleName)}/public-key`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,

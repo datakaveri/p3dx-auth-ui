@@ -77,6 +77,8 @@ export default function RoleRequest() {
       try {
         const res = await listAvailableDatasets(token);
         setDatasets(res?.status === "SUCCESS" && Array.isArray(res.datasets) ? res.datasets : []);
+      } catch {
+        setDatasets([]);
       } finally {
         setDatasetsLoading(false);
       }

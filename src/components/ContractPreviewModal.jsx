@@ -43,7 +43,12 @@ function Constraints({ constraints }) {
     <div className="cpm-field">
       <div className="cpm-field__label">Constraints</div>
       <div className="cpm-field__value">
-        {accessibility_level && <span className="pill">{accessibility_level}</span>}
+        {/* {accessibility_level && <span className="pill">{accessibility_level}</span>} */}
+        {/* Never shown as PUBLIC — displayed as PRIVATE instead (display only;
+            the contract's own accessibility_level is untouched). */}
+        {accessibility_level && (
+          <span className="pill">{accessibility_level.toUpperCase() === "PUBLIC" ? "PRIVATE" : accessibility_level}</span>
+        )}
         {(restricted_to || []).map(r => <span key={r} className="pill" style={{ marginLeft: 6 }}>{r}</span>)}
       </div>
     </div>
@@ -178,6 +183,10 @@ export default function ContractPreviewModal({ open, contract, onClose, onEdit, 
                 <Field label="Data URL" value={dp.data_url} mono />
                 <Field label="Key Resource Path" value={dp.trustee?.key_resource_path} mono />
                 <Constraints constraints={dp.constraints} />
+                <Field
+                  label="Consent Expires"
+                  value={dp.constraints?.consent_valid_until ? formatDate(dp.constraints.consent_valid_until) : "Not set (lasts until Valid Until)"}
+                />
                 <SignedBadge signature={dp.signature} />
               </PartyCard>
             ))}
