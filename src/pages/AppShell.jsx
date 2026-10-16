@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import { getMe, refreshAccessToken } from "../api/auth";
+import { getMe } from "../api/auth";
+import { getTokenExpiryMs, refreshSession, SESSION_EXPIRED_EVENT, TOKEN_REFRESHED_EVENT } from "../api/session";
+import dataForPublicGoodLogo from "../assets/data-for-public-good-logo.png";
+import iiscLogo from "../assets/iisc-logo.png";
+import cdacLogo from "../assets/cdac-logo.png";
 
 // Access tokens are short-lived (Keycloak default is a few minutes). Flows
 // like FL/VM provisioning run far longer than that and poll on fixed
@@ -9,17 +13,15 @@ import { getMe, refreshAccessToken } from "../api/auth";
 // and the UI silently stops updating. Decode the token's own exp claim
 // (no signature check needed - the browser can't forge a token the backend
 // will accept) so the refresh timer tracks whatever lifespan Keycloak issued.
-function getTokenExpiryMs(token) {
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return typeof payload.exp === "number" ? payload.exp * 1000 : null;
-  } catch {
-    return null;
-  }
-}
+// The refresh token's own exp matters too: Keycloak's session-idle timeout
+// (30 min on the local realm) is shorter than the access token (60 min), so
+// waiting for the access token to near expiry meant the refresh token was
+// already dead and the refresh silently failed (-> INVALID_OR_EXPIRED_TOKEN).
 
 const REFRESH_BUFFER_MS = 30_000; // refresh 30s before expiry
 const MIN_REFRESH_DELAY_MS = 5_000; // never hammer the refresh endpoint
+
+const SIDEBAR_COLLAPSED_KEY = "p3dx.sidebarCollapsed";
 
 function NavIcon({ children }) {
   return (
@@ -99,6 +101,18 @@ const ICONS = {
       <line x1="9" y1="16" x2="13" y2="16" />
     </NavIcon>
   ),
+  collapse: (
+    <NavIcon>
+      <polyline points="11 17 6 12 11 7" />
+      <polyline points="18 17 13 12 18 7" />
+    </NavIcon>
+  ),
+  expand: (
+    <NavIcon>
+      <polyline points="13 17 18 12 13 7" />
+      <polyline points="6 17 11 12 6 7" />
+    </NavIcon>
+  ),
   logout: (
     <NavIcon>
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -122,7 +136,48 @@ export default function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const token = sessionStorage.getItem("access_token");
+  const [token, setToken] = useState(() => sessionStorage.getItem("access_token"));
+
+  // Sidebar "minimize" — collapses to an icon-only rail. Remembered across
+  // reloads; storage access can throw (private mode / blocked site data), so
+  // fall back to expanded rather than breaking the shell.
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleCollapsed = () => {
+    setCollapsed(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? "1" : "0");
+      } catch {
+        // ignore — state still applies for this page load
+      }
+      return next;
+    });
+  };
+
+  // api/session.js refreshes on demand (any API call made with a stale token)
+  // as well as here; keep this component's copy in sync either way, and send
+  // the user to login once the Keycloak session is really gone.
+  useEffect(() => {
+    const onRefreshed = (e) => setToken(e.detail);
+    const onExpired = () => {
+      sessionStorage.removeItem("access_token");
+      sessionStorage.removeItem("refresh_token");
+      navigate("/login", { replace: true });
+    };
+    window.addEventListener(TOKEN_REFRESHED_EVENT, onRefreshed);
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => {
+      window.removeEventListener(TOKEN_REFRESHED_EVENT, onRefreshed);
+      window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    };
+  }, [navigate]);
 
   const roles = useMemo(() => user?.roles || [], [user]);
   const isAdmin = roles.includes("admin");
@@ -141,8 +196,9 @@ export default function AppShell() {
       return;
     }
 
-    Promise.resolve().then(() => setLoading(true));
-
+    // `loading` starts true, so only the first load shows the spinner. Later
+    // runs are background token refreshes - re-showing the spinner would
+    // unmount the current page and wipe e.g. a half-filled contract form.
     getMe(token)
       .then(res => {
         if (res?.status !== "SUCCESS") {
@@ -165,21 +221,7 @@ export default function AppShell() {
   // reissued. Exchange the refresh token for a fresh one, then re-fetch the
   // profile, so newly-granted roles appear without a full re-login.
   const refreshUser = useCallback(async () => {
-    const refreshToken = sessionStorage.getItem("refresh_token");
-    let freshToken = sessionStorage.getItem("access_token");
-
-    if (refreshToken) {
-      try {
-        const tokenRes = await refreshAccessToken(refreshToken);
-        if (tokenRes?.access_token) {
-          freshToken = tokenRes.access_token;
-          sessionStorage.setItem("access_token", tokenRes.access_token);
-          if (tokenRes.refresh_token) sessionStorage.setItem("refresh_token", tokenRes.refresh_token);
-        }
-      } catch (err) {
-        console.warn("Failed to refresh access token:", err);
-      }
-    }
+    const freshToken = (await refreshSession()) || sessionStorage.getItem("access_token");
 
     const res = await getMe(freshToken);
     if (res?.status === "SUCCESS") {
@@ -195,16 +237,35 @@ export default function AppShell() {
   useEffect(() => {
     if (!token) return undefined;
 
-    const expiryMs = getTokenExpiryMs(token);
-    if (!expiryMs) return undefined;
+    // Refresh before whichever dies first: the access token or the refresh
+    // token (Keycloak session idle).
+    const expiries = [token, sessionStorage.getItem("refresh_token")]
+      .map((t) => (t ? getTokenExpiryMs(t) : null))
+      .filter(Boolean);
+    if (!expiries.length) return undefined;
+    const expiryMs = Math.min(...expiries);
 
     const delay = Math.max(expiryMs - Date.now() - REFRESH_BUFFER_MS, MIN_REFRESH_DELAY_MS);
     const timer = setTimeout(() => {
-      refreshUser().catch((err) => console.warn("Background token refresh failed:", err));
+      refreshSession();
     }, delay);
 
-    return () => clearTimeout(timer);
-  }, [token, refreshUser]);
+    // Timers don't fire while the laptop sleeps and are throttled in
+    // background tabs — catch up as soon as the user comes back.
+    const onWake = () => {
+      if (document.visibilityState === "visible" && expiryMs - Date.now() < REFRESH_BUFFER_MS) {
+        refreshSession();
+      }
+    };
+    document.addEventListener("visibilitychange", onWake);
+    window.addEventListener("focus", onWake);
+
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onWake);
+      window.removeEventListener("focus", onWake);
+    };
+  }, [token]);
 
   // Non-admins land on the role-request page first after login — a mandatory
   // first stop before the services list. There is no per-service gating
@@ -264,10 +325,29 @@ export default function AppShell() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={collapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
       <aside className="sidebar">
+        <button
+          type="button"
+          className="sidebar-toggle"
+          onClick={toggleCollapsed}
+          aria-label={collapsed ? "Expand sidebar" : "Minimize sidebar"}
+          aria-expanded={!collapsed}
+          title={collapsed ? "Expand sidebar" : "Minimize sidebar"}
+        >
+          {collapsed ? ICONS.expand : ICONS.collapse}
+        </button>
+
         <div className="sidebar-brand">
-          <h2 style={{ marginBottom: 0 }}>Dashboard</h2>
+          <div className="sidebar-logos">
+            <div className="sidebar-logos-row">
+              <img className="sidebar-logo-iisc" src={iiscLogo} alt="Indian Institute of Science" />
+              <span className="sidebar-logos-divider" aria-hidden="true" />
+              <img className="sidebar-logo" src={dataForPublicGoodLogo} alt="Data for Public Good" />
+            </div>
+            <span className="sidebar-logos-rule" aria-hidden="true" />
+            <img className="sidebar-logo-cdac" src={cdacLogo} alt="C-DAC" />
+          </div>
           <div className="nav-subtitle">
             Signed in as <span style={{ color: "var(--text-dark)", fontWeight: 800 }}>{user.username}</span>
           </div>
@@ -275,17 +355,18 @@ export default function AppShell() {
 
         <nav className="sidebar-nav">
           {isAdmin ? (
-            <a className={location.pathname.startsWith("/app/admin") ? "sidebar-link sidebar-link-active" : "sidebar-link"} href="/app/admin" onMouseMove={trackGlow}>
+            <a title={collapsed ? "Admin" : undefined} className={location.pathname.startsWith("/app/admin") ? "sidebar-link sidebar-link-active" : "sidebar-link"} href="/app/admin" onMouseMove={trackGlow}>
               {ICONS.admin}
               <span>Admin</span>
             </a>
           ) : (
             <>
-              <a className={location.pathname.startsWith("/app/role-request") ? "sidebar-link sidebar-link-active" : "sidebar-link"} href="/app/role-request" onMouseMove={trackGlow}>
+              <a title={collapsed ? "Role Access" : undefined} className={location.pathname.startsWith("/app/role-request") ? "sidebar-link sidebar-link-active" : "sidebar-link"} href="/app/role-request" onMouseMove={trackGlow}>
                 {ICONS.roleAccess}
                 <span>Role Access</span>
               </a>
               <a
+                title={collapsed ? "Services" : undefined}
                 className={
                   location.pathname.startsWith("/app/services") &&
                   !location.pathname.startsWith("/app/services/infra-policy/my") &&
@@ -300,11 +381,12 @@ export default function AppShell() {
                 {ICONS.services}
                 <span>Services</span>
               </a>
-              {/* Policy (Dataset) — one place to set dataset access policies,
+              {/* Upload Dataset — one place to upload datasets and their access policies,
                   shared by every service (PolicyForm.jsx); replaces the
                   per-service "Set Policies" card in UserDashboard.jsx. */}
               {hasDataProvider ? (
                 <a
+                  title={collapsed ? "Upload Dataset" : undefined}
                   className={
                     location.pathname.startsWith("/app/services/policies") &&
                     !location.pathname.startsWith("/app/services/policies/my")
@@ -315,11 +397,12 @@ export default function AppShell() {
                   onMouseMove={trackGlow}
                 >
                   {ICONS.policy}
-                  <span>Policy (Dataset)</span>
+                  <span>Upload Dataset</span>
                 </a>
               ) : null}
               {!hasDataProvider ? (
                 <a
+                  title={collapsed ? "Projects" : undefined}
                   className={location.pathname.startsWith("/app/projects") ? "sidebar-link sidebar-link-active" : "sidebar-link"}
                   href="/app/projects"
                   onMouseMove={trackGlow}
@@ -335,6 +418,7 @@ export default function AppShell() {
                   roles, and not at all otherwise. */}
               {hasInfraProvider || hasDataProvider ? (
                 <a
+                  title={collapsed ? "Manage" : undefined}
                   className={
                     location.pathname.startsWith("/app/services/infra-policy/my") ||
                     location.pathname.startsWith("/app/services/policies/my") ||
@@ -358,6 +442,7 @@ export default function AppShell() {
                   providers). UI only for now; see MyAuditDashboard.jsx. */}
               {hasInfraProvider || hasDataProvider ? (
                 <a
+                  title={collapsed ? "Audit" : undefined}
                   className={location.pathname.startsWith("/app/services/audit") ? "sidebar-link sidebar-link-active" : "sidebar-link"}
                   href="/app/services/audit"
                   onMouseMove={trackGlow}
@@ -370,6 +455,7 @@ export default function AppShell() {
                   rather than its own sidebar link.
               {hasDataProvider ? (
                 <a
+                  title={collapsed ? "Contracts" : undefined}
                   className={location.pathname.startsWith("/app/services/contracts") ? "sidebar-link sidebar-link-active" : "sidebar-link"}
                   href="/app/services/contracts"
                   onMouseMove={trackGlow}
@@ -392,9 +478,11 @@ export default function AppShell() {
               navigate("/login");
             }}
             style={{ marginTop: 0, width: "100%" }}
+            title={collapsed ? "Logout" : undefined}
+            aria-label="Logout"
           >
             {ICONS.logout}
-            Logout
+            <span className="btn-logout-label">Logout</span>
           </button>
         </div>
       </aside>

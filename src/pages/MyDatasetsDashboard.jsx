@@ -105,7 +105,7 @@ export default function MyDatasetsDashboard() {
         <div className="page-header-title">
           <h3 className="section-title" style={{ marginBottom: 0 }}>My Datasets</h3>
           <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
-            Dataset access policies you've registered.
+            Datasets you've uploaded, with their access policies.
           </div>
         </div>
         <div className="page-header-actions">
@@ -135,7 +135,7 @@ export default function MyDatasetsDashboard() {
               })
             }
           >
-            Register New
+            Upload Dataset
           </button>
         </div>
       </div>

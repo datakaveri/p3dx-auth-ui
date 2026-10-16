@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import {
   previewContract, runTeeJob, editContract, listWorkloads, /* startTeeSession, */ getTeeSessionStatus,
-  downloadTeeSessionOutput, terminateTeeSession, getContractSignatures,
+  downloadTeeSessionOutput, terminateTeeSession, getContractSignatures, getLiveContract,
 } from "../api/workloads";
 import {
   listAvailableDatasets, listAvailableInfrastructure, getInfrastructureDetails,
@@ -218,17 +218,24 @@ export default function WorkloadForm() {
   // before a run is allowed (gov_layer enforces this too).
   const [signatureStatus, setSignatureStatus] = useState(null);
   const [signatureError, setSignatureError] = useState(null);
+  // Set when a data provider sets their consent expiry: gov_layer updates
+  // the stored contract, which the signature poll below picks up.
+  const [consentExpiryNotice, setConsentExpiryNotice] = useState(null);
+  const generatedContractRef = useRef(null);
+  generatedContractRef.current = generatedContract;
   const needsSignatures = technique === "TEE" || technique === "SMPC";
   const allSigned = !needsSignatures || signatureStatus?.tee === "can run";
-  // TEE: the consumer can edit the generated contract's workload in place.
-  // It isn't re-signed, so gov_layer refuses the run afterwards — Run stays
-  // clickable after an edit so that refusal can be seen.
+  // TEE: the consumer can edit the generated contract (workload, dates,
+  // dataset fields) in place, even after signing. gov_layer accepts the edit
+  // as an amendment, so the providers don't re-sign and the run goes ahead
+  // with the edited details.
   const [contractEdited, setContractEdited] = useState(false);
 
   // Filtered lists
   const filteredDatasetList = useMemo(() => {
     const q = datasetSearchQuery.toLowerCase();
-    return datasetList.filter(d => !q || d.name.toLowerCase().includes(q));
+    // return datasetList.filter(d => !q || d.name.toLowerCase().includes(q));
+    return datasetList.filter(d => !q || d.name.toLowerCase().includes(q) || (d.provider || "").toLowerCase().includes(q));
   }, [datasetList, datasetSearchQuery]);
 
   const filteredInfraList = useMemo(() => {
@@ -294,6 +301,7 @@ export default function WorkloadForm() {
     // if (isTEETechnique && !purpose.trim()) return; // purpose is optional for now
     setError(null);
     setGeneratedContract(null);
+    setConsentExpiryNotice(null);
     setContractEdited(false);
     setSignatureStatus(null);
     setSignatureError(null);
@@ -311,7 +319,7 @@ export default function WorkloadForm() {
       });
       const contract = res?.contract || null;
       setGeneratedContract(contract);
-      // Policies set on the "Set Policy" page can carry a data URL for the
+      // Policies set on the "Upload Dataset" page can carry a data URL for the
       // dataset — prefill the run form with it so the consumer doesn't have
       // to re-type a URL the provider already declared. With multiple
       // datasets selected there's no single "the" data URL for the run
@@ -413,6 +421,20 @@ export default function WorkloadForm() {
         if (cancelled) return;
         setSignatureStatus(status);
         setSignatureError(null);
+        // Pick up consent expiries data providers set after generation.
+        try {
+          const live = await getLiveContract(token, contractIdForSignatures);
+          if (!cancelled && live && consentExpiryKey(live) !== consentExpiryKey(generatedContractRef.current)) {
+            setGeneratedContract(live);
+            const set = (live.parties?.data_providers || []).filter(dp => dp.constraints?.consent_valid_until);
+            setConsentExpiryNotice(set.length
+              ? set.map(dp => `${dp.name || dp.id} set consent to expire on ${new Date(dp.constraints.consent_valid_until).toLocaleString()}`).join("; ")
+                + " — the consent request was updated and re-sent to the data providers for signature."
+              : null);
+          }
+        } catch {
+          // keep showing the contract as generated
+        }
         if (status?.tee === "can run") return;
       } catch (err) {
         if (cancelled) return;
@@ -677,6 +699,11 @@ export default function WorkloadForm() {
                     >
                       <Database size={16} />
                       <span className="cat-simple-item__name">{d.name}</span>
+                      {d.provider && (
+                        <span style={{ fontSize: 12, color: "var(--text-light)", whiteSpace: "nowrap" }}>
+                          by {d.provider}
+                        </span>
+                      )}
                       {selectedDatasetIds.includes(d.id) && <CheckCircle2 size={15} />}
                     </button>
                   ))}
@@ -850,6 +877,11 @@ export default function WorkloadForm() {
                 <div className="value" style={{ fontSize: 12, wordBreak: "break-all" }}>{generatedContract.contract_id}</div>
               </div>
             </div>
+            {consentExpiryNotice && (
+              <div className="info-banner" style={{ marginTop: 12, marginBottom: 0, fontSize: 13 }}>
+                {consentExpiryNotice}
+              </div>
+            )}
             <button
               type="button"
               className="btn btn-secondary"
@@ -875,9 +907,14 @@ export default function WorkloadForm() {
                             <div style={{ color: allSigned ? "var(--success, #2e7d32)" : "var(--text-light)" }}>
                               {allSigned ? "Signatures matching ✓ — can run" : "Signatures not matching yet"}
                             </div>
-                            {contractEdited && (
+                            {/* {contractEdited && (
                               <div className="error-message" style={{ marginTop: 6, fontSize: 13 }}>
                                 Edited after signing — this consent request no longer matches what the data providers signed, so the run will be refused.
+                              </div>
+                            )} */}
+                            {contractEdited && (
+                              <div style={{ marginTop: 6, fontSize: 13, color: "var(--text-light)" }}>
+                                Edited — the change is accepted without the data providers signing again; the run uses the new details.
                               </div>
                             )}
                             {!allSigned && !contractEdited && (
@@ -891,7 +928,7 @@ export default function WorkloadForm() {
                     )}
                     {!datasetUrl && (
                       <div className="error-message" style={{ marginBottom: 10, fontSize: 13 }}>
-                        This dataset's policy has no data URL set — go to Set Policy and add one before running.
+                        This dataset's policy has no data URL set — go to Upload Dataset and add one before running.
                       </div>
                     )}
                     <button
@@ -1029,4 +1066,11 @@ export default function WorkloadForm() {
       />
     </div>
   );
+}
+
+// Each data provider's consent expiry on c, as one comparable string.
+function consentExpiryKey(c) {
+  return (c?.parties?.data_providers || [])
+    .map(dp => `${dp.id}:${dp.constraints?.consent_valid_until || ""}`)
+    .join("|");
 }

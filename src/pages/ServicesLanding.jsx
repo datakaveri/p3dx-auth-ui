@@ -1,5 +1,5 @@
 import { useNavigate, useOutletContext } from "react-router-dom";
-import { EyeOff, Network, Lock, BarChart2, ArrowRight, CheckCircle, ShieldCheck } from "lucide-react";
+import { EyeOff, Network, Lock, BarChart2, ArrowRight, /* CheckCircle, */ ShieldCheck } from "lucide-react";
 
 const SERVICE_DEFS = [
   {
@@ -68,11 +68,11 @@ function ServiceCard({ title, description, icon, iconClass, cardClass, roleRequi
         <div className="service-description">{description}</div>
       </div>
 
-      <div className="service-card-footer">
-        <span className={`service-role-badge ${roleRequired ? "service-role-badge--req" : "service-role-badge--free"}`}>
+      <div className="service-card-footer" style={{ justifyContent: "flex-end" }}>
+        {/* <span className={`service-role-badge ${roleRequired ? "service-role-badge--req" : "service-role-badge--free"}`}>
           {!roleRequired && <CheckCircle size={10} />}
           {roleRequired ? "Role required" : "No role required"}
-        </span>
+        </span> */}
         <span className="service-arrow">
           <ArrowRight size={15} />
         </span>

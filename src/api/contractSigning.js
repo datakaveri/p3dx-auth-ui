@@ -1,4 +1,5 @@
 import { BACKEND_URL } from "../config";
+import { authFetch } from "./session";
 
 async function parseJsonSafe(res) {
   try {
@@ -11,7 +12,7 @@ async function parseJsonSafe(res) {
 // Contracts (FL final roster, TEE, SMPC) waiting on (or already given) this
 // data provider's signature.
 export async function listContractSignRequests(token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/contracts/sign-requests`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/contracts/sign-requests`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const data = await parseJsonSafe(res);
@@ -22,7 +23,7 @@ export async function listContractSignRequests(token) {
 }
 
 export async function submitContractSignature(token, contractId, { notificationId, contractHash, signature }) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/contracts/${encodeURIComponent(contractId)}/sign`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/contracts/${encodeURIComponent(contractId)}/sign`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ notificationId, contractHash, signature }),
@@ -37,7 +38,7 @@ export async function submitContractSignature(token, contractId, { notificationI
 // Withdraws the consent this provider gave by signing a TEE contract (DPDP
 // Act s.6(4)). gov_layer clears their signature, so no further run starts.
 export async function withdrawConsent(token, contractId, { notificationId }) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/contracts/${encodeURIComponent(contractId)}/withdraw-consent`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/contracts/${encodeURIComponent(contractId)}/withdraw-consent`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ notificationId }),
@@ -45,6 +46,23 @@ export async function withdrawConsent(token, contractId, { notificationId }) {
   const data = await parseJsonSafe(res);
   if (!res.ok || data?.status !== "withdrawn") {
     throw new Error(data?.message || data?.error || "Failed to withdraw consent");
+  }
+  return data;
+}
+
+// Sets when this provider's consent on a TEE/SMPC consent request ends
+// (validUntil: an RFC 3339 time, or "YYYY-MM-DD" for the end of that day
+// UTC), before signing. gov_layer updates the contract
+// and re-sends every sign request (the hash changes), and tells the consumer.
+export async function setConsentExpiry(token, contractId, validUntil) {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/contracts/${encodeURIComponent(contractId)}/consent-expiry`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ validUntil }),
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status !== "SUCCESS") {
+    throw new Error(data?.message || data?.error || "Failed to set consent expiry");
   }
   return data;
 }

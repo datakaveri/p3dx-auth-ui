@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { FileText, X } from "lucide-react";
 import {
   listContractSignRequests, signContractHash, submitContractSignature, verifyGovernanceSignature, withdrawConsent,
+  setConsentExpiry,
 } from "../api/contractSigning";
 import DpdpConsentNotice from "./DpdpConsentNotice";
 
@@ -17,12 +18,66 @@ export default function ContractSignRequests({ token }) {
   const [govVerified, setGovVerified] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null);
   const [expanded, setExpanded] = useState(null);
   const [keyFiles, setKeyFiles] = useState({});
   const [busyId, setBusyId] = useState(null);
   const [rowMessage, setRowMessage] = useState({});
   // notification id -> true once the DPDP consent notice has been acknowledged
   const [noticeAck, setNoticeAck] = useState({});
+  // the open consent notice's checkbox; counts only once Save is clicked
+  const [ackDraft, setAckDraft] = useState(false);
+  // the open consent request's "Consent expires on" (datetime-local, the
+  // viewer's local time: YYYY-MM-DDTHH:MM)
+  const [expiryDraft, setExpiryDraft] = useState("");
+  const [expiryBusy, setExpiryBusy] = useState(false);
+  const [expiryError, setExpiryError] = useState(null);
+
+  useEffect(() => {
+    setAckDraft(Boolean(expanded && noticeAck[expanded]));
+    const n = requests.find(r => r.id === expanded);
+    const current = ownParty(n)?.constraints?.consent_valid_until;
+    setExpiryDraft(current ? toLocalInput(current) : "");
+    setExpiryError(null);
+  }, [expanded]);
+
+  // Save on the consent notice: acknowledges it and, when the provider picked
+  // or changed "Consent expires on", sets that expiry first. The contract (and
+  // its hash) then change, so gov_layer replaces this sign request with a new
+  // one — the acknowledgment carries over to it so the provider can sign
+  // straight away. Closes the consent request on success.
+  const saveNotice = async n => {
+    if (expiryBusy) return;
+    const p = n.payload || {};
+    const current = ownParty(n)?.constraints?.consent_valid_until;
+    const expiryChanged = Boolean(expiryDraft) && expiryDraft !== (current ? toLocalInput(current) : "");
+    if (!expiryChanged) {
+      setNoticeAck(a => ({ ...a, [n.id]: true }));
+      setRowMessage(m => ({ ...m, [n.id]: { error: false, text: "Consent notice acknowledged." } }));
+      setExpanded(null);
+      return;
+    }
+    setExpiryBusy(true);
+    setExpiryError(null);
+    try {
+      // Local time -> RFC 3339 (UTC), so gov_layer stores the exact moment.
+      const when = new Date(expiryDraft);
+      if (Number.isNaN(when.getTime())) throw new Error("Invalid date and time");
+      await setConsentExpiry(token, p.contract_id, when.toISOString());
+      setExpanded(null);
+      const list = await refresh();
+      const updated = (list || []).find(r => r.payload?.contract_id === p.contract_id && r.response !== "accepted");
+      const ackId = updated ? updated.id : n.id;
+      setNoticeAck(a => ({ ...a, [ackId]: true }));
+      setRowMessage(m => ({ ...m, [n.id]: null, [ackId]: { error: false, text: "Consent notice acknowledged." } }));
+      setError(null);
+      setNotice(`Consent expiry set to ${when.toLocaleString()} for contract ${p.contract_id}. The consent request was updated — sign it to give consent.`);
+    } catch (e) {
+      setExpiryError(e?.message || "Failed to set consent expiry");
+    } finally {
+      setExpiryBusy(false);
+    }
+  };
 
   const refresh = async () => {
     if (!token) return;
@@ -36,6 +91,7 @@ export default function ContractSignRequests({ token }) {
         return [n.id, await verifyGovernanceSignature(p.governance_public_key, p.contract_hash, p.governance_signature)];
       }));
       setGovVerified(Object.fromEntries(checks));
+      return list;
     } catch (e) {
       setError(e?.message || "Failed to load contracts to sign");
     } finally {
@@ -115,6 +171,7 @@ export default function ContractSignRequests({ token }) {
       </div>
 
       {error ? <div className="error-message">{error}</div> : null}
+      {notice ? <div className="info-banner" style={{ marginBottom: "12px" }}>{notice}</div> : null}
 
       <div className="card" style={{ padding: 0 }}>
         <div className="table-wrap">
@@ -236,8 +293,38 @@ export default function ContractSignRequests({ token }) {
                 <DpdpConsentNotice
                   contract={p.contract}
                   requestedBy={n.sender_username}
-                  acknowledged={signed || noticeAck[n.id]}
-                  onAcknowledge={signed ? undefined : v => setNoticeAck(a => ({ ...a, [n.id]: v }))}
+                  acknowledged={signed || ackDraft}
+                  onAcknowledge={signed ? undefined : setAckDraft}
+                  beforeSave={
+                    !signed && (p.technique === "TEE" || p.technique === "SMPC") ? (
+                      <div className="card" style={{ marginTop: "12px", padding: "14px 16px" }}>
+                        <div className="form-group" style={{ marginBottom: "8px" }}>
+                          <label htmlFor="consent-expiry">Consent expires on</label>
+                          <input
+                            id="consent-expiry"
+                            className="input"
+                            type="datetime-local"
+                            style={{ width: "auto" }}
+                            value={expiryDraft}
+                            min={toLocalInput(new Date().toISOString())}
+                            max={(() => {
+                              const end = p.contract?.lifecycle?.requested_valid_until || p.contract?.lifecycle?.valid_until;
+                              return end ? toLocalInput(end) : undefined;
+                            })()}
+                            onChange={e => setExpiryDraft(e.target.value)}
+                            disabled={expiryBusy}
+                          />
+                        </div>
+                        <div style={{ fontSize: "12px", color: "var(--text-light)" }}>
+                          Optional. Your consent ends at this date and time (your local time) and no run starts after it. It is set when you
+                          click Save, which updates the consent request, so every data provider signs the updated version, and the requester
+                          is notified.
+                        </div>
+                        {expiryError ? <div className="error-message" style={{ marginTop: "8px", fontSize: "13px" }}>{expiryError}</div> : null}
+                      </div>
+                  ) : null
+                  }
+                  onSave={() => saveNotice(n)}
                 />
               </div>
             </div>
@@ -246,4 +333,19 @@ export default function ContractSignRequests({ token }) {
       })()}
     </div>
   );
+}
+
+// The caller's own data-provider party on a sign request's contract (the
+// request is addressed to that party's provider_id).
+function ownParty(n) {
+  const p = n?.payload || {};
+  return (p.contract?.parties?.data_providers || []).find(dp => dp.id === p.provider_id);
+}
+
+// An ISO time as a datetime-local input value in the viewer's time zone.
+function toLocalInput(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = v => String(v).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
