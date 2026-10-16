@@ -137,6 +137,7 @@ export default function UserDashboard() {
       <div style={{ marginBottom: "18px" }}>
         <h3 className="section-title">Actions</h3>
         <div className="action-grid">
+          {/* Moved to the sidebar's "Policy (Dataset)" link (AppShell.jsx):
           {hasDataProvider ? (
             <button
               className="action-card"
@@ -153,6 +154,7 @@ export default function UserDashboard() {
               </div>
             </button>
           ) : null}
+          */}
 
           {isSMPC && hasInfraProvider ? (
             <button
@@ -171,6 +173,7 @@ export default function UserDashboard() {
             </button>
           ) : null}
 
+          {/* Moved to Role Access (KeyPairCard):
           {keyRoleName && keyStatus ? (
             <button
               className="action-card"
@@ -188,8 +191,9 @@ export default function UserDashboard() {
               </div>
             </button>
           ) : null}
+          */}
         </div>
-        {keyError ? <div className="error-message">{keyError}</div> : null}
+        {/* {keyError ? <div className="error-message">{keyError}</div> : null} */}
       </div>
 
       {(isSMPC || isTEE) && !hasApplicationProvider && !hasDataProvider && !(isSMPC && hasInfraProvider) ? (

@@ -279,7 +279,6 @@ export default function MyAuditDashboard() {
                     <th>Dataset</th>
                     <th>Consent request</th>
                     <th>Consumer</th>
-                    <th>Status</th>
                     <th>What's happening</th>
                     <th>Updated</th>
                   </tr>
@@ -287,11 +286,11 @@ export default function MyAuditDashboard() {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={6} className="muted">Loading...</td>
+                      <td colSpan={5} className="muted">Loading...</td>
                     </tr>
                   ) : filteredRows.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="muted">No consent requests use your datasets yet</td>
+                      <td colSpan={5} className="muted">No consent requests use your datasets yet</td>
                     </tr>
                   ) : (
                     filteredRows.flatMap(r => {
@@ -310,13 +309,6 @@ export default function MyAuditDashboard() {
                             {r.technique ? <div className="muted" style={{ fontSize: "12px" }}>{r.technique.toUpperCase()}</div> : null}
                           </td>
                           <td>{r.consumer || "—"}</td>
-                          <td>
-                            {st.tone === "live" ? (
-                              <span className="live-badge"><span className="live-dot" /> {st.label}</span>
-                            ) : (
-                              <span className={`table-badge table-badge--${st.tone}`}>{st.label}</span>
-                            )}
-                          </td>
                           <td style={{ maxWidth: "420px" }}>{r.last_event?.detail || "—"}</td>
                           <td style={{ whiteSpace: "nowrap" }}>{timeAgo(r.updated_at || r.created_at, updatedAt || new Date())}</td>
                         </tr>,
@@ -324,7 +316,7 @@ export default function MyAuditDashboard() {
                       if (isOpen) {
                         out.push(
                           <tr key={`${key}:timeline`}>
-                            <td colSpan={6}>
+                            <td colSpan={5}>
                               {r.events?.length ? (
                                 <ol className="audit-timeline">
                                   {[...r.events].reverse().map((e, i) => (

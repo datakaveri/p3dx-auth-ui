@@ -141,10 +141,12 @@ export default function DpdpConsentNotice({ contract, requestedBy, acknowledged,
               ? <>To withdraw, email <a href={`mailto:${GRIEVANCE_EMAIL}?subject=Withdraw consent: ${contract.contract_id}`}>{GRIEVANCE_EMAIL}</a> quoting the contract ID.</>
               : <Missing>Withdrawal contact not configured.</Missing>}
           </li>
+          {/* Hidden for now:
           <li>
             <strong>Access, correction and erasure:</strong> you can ask what data was processed, and ask for it to be corrected or erased.{" "}
             {GRIEVANCE_EMAIL ? <>Contact <a href={`mailto:${GRIEVANCE_EMAIL}`}>{GRIEVANCE_EMAIL}</a>.</> : <Missing>Grievance contact not configured.</Missing>}
           </li>
+          */}
         </ul>
       </Section>
 

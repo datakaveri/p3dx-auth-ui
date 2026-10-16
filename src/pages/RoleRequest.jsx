@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import { createRoleRequest, listMyRoleRequests, listAvailableDatasets } from "../api/roleRequests";
+import KeyPairCard from "../components/KeyPairCard";
 
 // Single "request access" page for every role-gated service (Federated
 // Learning, SMPC, TEE, Differential Privacy). AppShell sends non-admins here
@@ -34,6 +35,8 @@ export default function RoleRequest() {
   const roles = useMemo(() => user?.roles || [], [user]);
   const selectedOption = ROLE_OPTIONS.find(r => r.value === roleToRequest);
   const hasSelectedRole = roles.includes(roleToRequest);
+  // Signing keys (KeyPairCard) for data/infra providers — one per user.
+  const keyRoleName = roles.includes("data-provider") ? "data-provider" : roles.includes("infra-provider") ? "infra-provider" : null;
 
   const formatDateTime = value => {
     if (!value) return "";
@@ -166,6 +169,8 @@ export default function RoleRequest() {
           {actionLoading ? "Submitting..." : "Submit Request"}
         </button>
       </div>
+
+      {keyRoleName ? <KeyPairCard token={token} roleName={keyRoleName} /> : null}
 
       <div style={{ marginTop: "22px" }}>
         <h3 className="section-title">My Role Requests</h3>

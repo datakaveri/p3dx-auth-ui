@@ -77,6 +77,12 @@ const ICONS = {
       <line x1="17" y1="16" x2="23" y2="16" />
     </NavIcon>
   ),
+  policy: (
+    <NavIcon>
+      <path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6l8-4z" />
+      <polyline points="9 12 11 14 15 10" />
+    </NavIcon>
+  ),
   contracts: (
     <NavIcon>
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -283,7 +289,7 @@ export default function AppShell() {
                 className={
                   location.pathname.startsWith("/app/services") &&
                   !location.pathname.startsWith("/app/services/infra-policy/my") &&
-                  !location.pathname.startsWith("/app/services/policies/my") &&
+                  !location.pathname.startsWith("/app/services/policies") &&
                   !location.pathname.startsWith("/app/services/contracts")
                     ? "sidebar-link sidebar-link-active"
                     : "sidebar-link"
@@ -294,6 +300,24 @@ export default function AppShell() {
                 {ICONS.services}
                 <span>Services</span>
               </a>
+              {/* Policy (Dataset) — one place to set dataset access policies,
+                  shared by every service (PolicyForm.jsx); replaces the
+                  per-service "Set Policies" card in UserDashboard.jsx. */}
+              {hasDataProvider ? (
+                <a
+                  className={
+                    location.pathname.startsWith("/app/services/policies") &&
+                    !location.pathname.startsWith("/app/services/policies/my")
+                      ? "sidebar-link sidebar-link-active"
+                      : "sidebar-link"
+                  }
+                  href="/app/services/policies"
+                  onMouseMove={trackGlow}
+                >
+                  {ICONS.policy}
+                  <span>Policy (Dataset)</span>
+                </a>
+              ) : null}
               {!hasDataProvider ? (
                 <a
                   className={location.pathname.startsWith("/app/projects") ? "sidebar-link sidebar-link-active" : "sidebar-link"}
