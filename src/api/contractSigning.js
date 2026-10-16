@@ -34,6 +34,21 @@ export async function submitContractSignature(token, contractId, { notificationI
   return data;
 }
 
+// Withdraws the consent this provider gave by signing a TEE contract (DPDP
+// Act s.6(4)). gov_layer clears their signature, so no further run starts.
+export async function withdrawConsent(token, contractId, { notificationId }) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/contracts/${encodeURIComponent(contractId)}/withdraw-consent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ notificationId }),
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status !== "withdrawn") {
+    throw new Error(data?.message || data?.error || "Failed to withdraw consent");
+  }
+  return data;
+}
+
 function pemToDer(pem, label) {
   const b64 = pem
     .replace(new RegExp(`-----BEGIN ${label}-----`), "")

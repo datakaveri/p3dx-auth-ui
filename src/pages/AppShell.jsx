@@ -77,6 +77,28 @@ const ICONS = {
       <line x1="17" y1="16" x2="23" y2="16" />
     </NavIcon>
   ),
+  policy: (
+    <NavIcon>
+      <path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6l8-4z" />
+      <polyline points="9 12 11 14 15 10" />
+    </NavIcon>
+  ),
+  contracts: (
+    <NavIcon>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="8" y1="13" x2="16" y2="13" />
+      <line x1="8" y1="17" x2="13" y2="17" />
+    </NavIcon>
+  ),
+  audit: (
+    <NavIcon>
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+      <rect x="8" y="2" width="8" height="4" rx="1" />
+      <line x1="9" y1="12" x2="15" y2="12" />
+      <line x1="9" y1="16" x2="13" y2="16" />
+    </NavIcon>
+  ),
   logout: (
     <NavIcon>
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -267,7 +289,8 @@ export default function AppShell() {
                 className={
                   location.pathname.startsWith("/app/services") &&
                   !location.pathname.startsWith("/app/services/infra-policy/my") &&
-                  !location.pathname.startsWith("/app/services/policies/my")
+                  !location.pathname.startsWith("/app/services/policies") &&
+                  !location.pathname.startsWith("/app/services/contracts")
                     ? "sidebar-link sidebar-link-active"
                     : "sidebar-link"
                 }
@@ -277,6 +300,24 @@ export default function AppShell() {
                 {ICONS.services}
                 <span>Services</span>
               </a>
+              {/* Policy (Dataset) — one place to set dataset access policies,
+                  shared by every service (PolicyForm.jsx); replaces the
+                  per-service "Set Policies" card in UserDashboard.jsx. */}
+              {hasDataProvider ? (
+                <a
+                  className={
+                    location.pathname.startsWith("/app/services/policies") &&
+                    !location.pathname.startsWith("/app/services/policies/my")
+                      ? "sidebar-link sidebar-link-active"
+                      : "sidebar-link"
+                  }
+                  href="/app/services/policies"
+                  onMouseMove={trackGlow}
+                >
+                  {ICONS.policy}
+                  <span>Policy (Dataset)</span>
+                </a>
+              ) : null}
               {!hasDataProvider ? (
                 <a
                   className={location.pathname.startsWith("/app/projects") ? "sidebar-link sidebar-link-active" : "sidebar-link"}
@@ -296,21 +337,48 @@ export default function AppShell() {
                 <a
                   className={
                     location.pathname.startsWith("/app/services/infra-policy/my") ||
-                    location.pathname.startsWith("/app/services/policies/my")
+                    location.pathname.startsWith("/app/services/policies/my") ||
+                    location.pathname.startsWith("/app/services/contracts")
                       ? "sidebar-link sidebar-link-active"
                       : "sidebar-link"
                   }
-                  // Infra-first landing target when a user holds both roles —
-                  // the in-page tab switcher on each dashboard (see
+                  // Datasets-first landing target when a user holds both
+                  // roles — the in-page tab switcher on each dashboard (see
                   // MyInfraDashboard.jsx/MyDatasetsDashboard.jsx) is what
                   // makes the other one reachable, not this link.
-                  href={hasInfraProvider ? "/app/services/infra-policy/my" : "/app/services/policies/my"}
+                  // href={hasInfraProvider ? "/app/services/infra-policy/my" : "/app/services/policies/my"}
+                  href={hasDataProvider ? "/app/services/policies/my" : "/app/services/infra-policy/my"}
                   onMouseMove={trackGlow}
                 >
                   {ICONS.manage}
                   <span>Manage</span>
                 </a>
               ) : null}
+              {/* Audit — right under Manage, same audience (data / infra
+                  providers). UI only for now; see MyAuditDashboard.jsx. */}
+              {hasInfraProvider || hasDataProvider ? (
+                <a
+                  className={location.pathname.startsWith("/app/services/audit") ? "sidebar-link sidebar-link-active" : "sidebar-link"}
+                  href="/app/services/audit"
+                  onMouseMove={trackGlow}
+                >
+                  {ICONS.audit}
+                  <span>Audit</span>
+                </a>
+              ) : null}
+              {/* Contracts to sign — now a tab inside Manage (ManageTabs.jsx)
+                  rather than its own sidebar link.
+              {hasDataProvider ? (
+                <a
+                  className={location.pathname.startsWith("/app/services/contracts") ? "sidebar-link sidebar-link-active" : "sidebar-link"}
+                  href="/app/services/contracts"
+                  onMouseMove={trackGlow}
+                >
+                  {ICONS.contracts}
+                  <span>Contracts</span>
+                </a>
+              ) : null}
+              */}
             </>
           )}
         </nav>

@@ -51,6 +51,20 @@ export async function generateAndRegisterKeyPair(token, roleName) {
   return data;
 }
 
+// Saves the registered public key (from getKeyPairStatus's publicKey) as a
+// .pem file — public, so a plain download is fine.
+export function downloadPublicKeyFile(publicKeyPem, filename) {
+  const blob = new Blob([publicKeyPem], { type: "application/x-pem-file" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function toPem(buffer, label) {
   let bin = "";
   new Uint8Array(buffer).forEach(b => {

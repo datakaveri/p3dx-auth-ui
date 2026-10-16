@@ -46,7 +46,37 @@ export async function runTeeJob(token, contractId) {
 
   if (!res.ok || data?.status === "FAILED") {
     const msg = data?.error || data?.message || `Run TEE failed (${res.status})`;
-    throw new Error(msg);
+    throw new Error(data?.code ? `${data.code}: ${msg}` : msg);
+  }
+
+  return data;
+}
+
+// Every workload a TEE contract can run: [{ id, name, image, cpu, memory }].
+export async function listWorkloads(token) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/workloads/catalog`, { headers: authHeaders(token) });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw new Error(data?.message || data?.error || `Loading workloads failed (${res.status})`);
+  }
+  return Array.isArray(data?.workloads) ? data.workloads : [];
+}
+
+// Edits a generated TEE contract in place (lifecycle dates, consumer name,
+// dataset fields, workload — the PUT /contracts/{id} body). It is not
+// re-signed, so the run is refused afterwards (signatures no longer match).
+// Resolves to { contract, changes, signed_hash, content_hash, ... }.
+export async function editContract(token, contractId, changes) {
+  const res = await fetch(`${BACKEND_URL}/p3dx/workloads/contracts/${encodeURIComponent(contractId)}`, {
+    method: "PUT",
+    headers: authHeaders(token),
+    body: JSON.stringify(changes),
+  });
+
+  const data = await parseJsonSafe(res);
+
+  if (!res.ok || data?.status === "FAILED") {
+    throw new Error(data?.message || data?.error || `Editing the consent request failed (${res.status})`);
   }
 
   return data;
@@ -112,7 +142,7 @@ export async function getContractSignatures(token, contractId) {
 // name a human recognizes. infraIds is the InfraCat selection (SMPC only,
 // exactly 2); omitted for TEE/FL. applicationId is the selected workload
 // (TEE only) — becomes the contract's application provider party.
-export async function previewContract(token, { datasets, technique, infraIds, applicationId }) {
+export async function previewContract(token, { datasets, technique, infraIds, applicationId, purpose }) {
   const res = await fetch(`${BACKEND_URL}/p3dx/workloads/preview-contract`, {
     method: "POST",
     headers: authHeaders(token),
@@ -120,6 +150,8 @@ export async function previewContract(token, { datasets, technique, infraIds, ap
       datasets, technique,
       ...(infraIds?.length ? { infraIds } : {}),
       ...(applicationId ? { applicationId } : {}),
+      // Stated purpose of processing (DPDP Rule 3 notice) — required for TEE.
+      ...(purpose ? { purpose } : {}),
     }),
   });
 
