@@ -3,6 +3,11 @@ import { PublicClientApplication } from "@azure/msal-browser";
 const AZURE_CLIENT_ID = import.meta.env.VITE_AZURE_CLIENT_ID;
 const AZURE_TENANT_ID = import.meta.env.VITE_AZURE_TENANT_ID;
 
+// Test-only: when VITE_AZURE_DRY_RUN=true the Microsoft sign-ins are skipped
+// entirely. The backend never reads these Azure tokens (they only gate the
+// UI), so the rest of the flow works unchanged without an Azure account.
+const AZURE_DRY_RUN = import.meta.env.VITE_AZURE_DRY_RUN === "true";
+
 const msalConfig = {
   auth: {
     clientId: AZURE_CLIENT_ID,
@@ -60,6 +65,7 @@ async function withStaleInteractionRetry(fn) {
 // own page) and returns a fresh Azure access token scoped for ARM/Terraform.
 // Always interactive - see the prompt: select_account note below.
 export async function getAzureAccessToken() {
+  if (AZURE_DRY_RUN) return "dry-run";
   const instance = getMsalInstance();
   await initPromise;
 
@@ -93,6 +99,7 @@ export async function getAzureAccessToken() {
 const PROVIDER_SIGNIN_CONTEXT_KEY = "p3dx_provider_azure_signin_context";
 
 export async function signInProviderWithAzure(context) {
+  if (AZURE_DRY_RUN) return { account: { username: "dry-run" } };
   const instance = getMsalInstance();
   await initPromise;
 
@@ -111,6 +118,7 @@ export async function signInProviderWithAzure(context) {
 // before it navigated away) so the caller can finish what it was doing.
 // Returns null on a normal page load with nothing to resume.
 export async function completeProviderAzureSignIn() {
+  if (AZURE_DRY_RUN) return null;
   const instance = getMsalInstance();
   await initPromise;
 

@@ -38,15 +38,22 @@ export async function getVmProvisioningToken(role, token) {
 // below. runKey identifies the caller's own instance (e.g. one
 // VmProvisioningPanel mount) so a duplicate call for it doesn't spawn a
 // second `az login` - distinct runKeys run fully concurrently.
-export async function triggerAutoProvision(role, token, vmName, runKey, submissionId = null) {
+// credentialId (from issueVmCredential) is required by the backend for a
+// data-provider run tied to a submission; omitted from the body otherwise.
+export async function triggerAutoProvision(role, token, vmName, runKey, submissionId = null, credentialId = null) {
+  const body = { role, vmName, runKey, submissionId };
+  if (credentialId) body.credentialId = credentialId;
   const res = await authFetch(`${ORCHESTRATOR_URL}/p3dx/vm-provisioning/auto-create`, {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify({ role, vmName, runKey, submissionId }),
+    body: JSON.stringify(body),
   });
   const data = await parseJsonSafe(res);
   if (!res.ok || data?.status === "FAILED") {
-    throw new Error(data?.error || `Failed to start VM provisioning (${res.status})`);
+    const err = new Error(data?.error || `Failed to start VM provisioning (${res.status})`);
+    err.code = data?.error || null;
+    err.statusCode = res.status;
+    throw err;
   }
   return data;
 }
