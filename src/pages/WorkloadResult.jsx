@@ -85,7 +85,7 @@ export default function WorkloadResult() {
               <CheckCircle2 size={18} />
             </div>
             <div className="result-success-text">
-              <b>TEE started — Contract {result.contract_id}</b>
+              <b>TEE started — Consent Request {result.contract_id}</b>
               <span>
                 {result.app_id ? `Application: ${result.app_id}` : "Workload is running inside the TEE."}
               </span>
@@ -94,7 +94,7 @@ export default function WorkloadResult() {
 
           <div className="card" style={{ marginTop: "14px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
-              <div style={{ fontWeight: 700, fontSize: "15px" }}>Signed Contract</div>
+              <div style={{ fontWeight: 700, fontSize: "15px" }}>Signed Consent Request</div>
               <button
                 className="btn btn-secondary"
                 style={{ width: "auto" }}

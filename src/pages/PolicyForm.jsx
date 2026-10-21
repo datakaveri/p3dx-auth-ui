@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { submitPolicy, getMyDatasetDetails } from "../api/policies";
-import { applications as APPLICATIONS } from "../data/catalogueData";
+// import { applications as APPLICATIONS } from "../data/catalogueData";
+import { listWorkloads } from "../api/workloads";
 
 const ORGS = [
   { id: "datakaveri", label: "@gmail.com" },
@@ -69,9 +70,6 @@ function IconClipboard() {
 function IconUser() {
   return <svg {...ICON_PROPS}><circle cx="10" cy="7" r="3" /><path d="M4 17c0-3.3 2.7-6 6-6s6 2.7 6 6" /></svg>;
 }
-function IconLock() {
-  return <svg {...ICON_PROPS}><rect x="5" y="9" width="10" height="8" rx="1.5" /><path d="M7 9V6.5a3 3 0 0 1 6 0V9" /></svg>;
-}
 
 export default function PolicyForm() {
   const { user, isAdmin, token } = useOutletContext();
@@ -96,7 +94,12 @@ export default function PolicyForm() {
     datasetId: itemId || generateDatasetId(),
     datasetName: "",
     dataUrl: "",
-    application: APPLICATIONS[0].id,
+    keyResourcePath: "",
+    // application: APPLICATIONS[0].id,
+    // Workload ids (gov_layer's KnownWorkloads) the provider picks for this
+    // dataset, from the workloads offered for its Purpose. Optional and
+    // informational — gov_layer doesn't restrict datasets to them.
+    allowedWorkloads: [],
     allowedOrg: ORGS[0].id,
     accessLevel: "read",
     expiresAt: "",
@@ -120,6 +123,23 @@ export default function PolicyForm() {
   }));
 
   const [submitted, setSubmitted] = useState(false);
+
+  // The platform's workloads, from gov_layer's catalogue — the same list
+  // WorkloadForm.jsx's TEE "Workload" tab picks from.
+  const [workloads, setWorkloads] = useState([]);
+  const [workloadsError, setWorkloadsError] = useState(null);
+  const loadWorkloads = () => {
+    if (!token) return;
+    listWorkloads(token)
+      .then(list => {
+        setWorkloads(list);
+        setWorkloadsError(null);
+      })
+      .catch(err => setWorkloadsError(err.message || "Failed to load workloads"));
+  };
+  useEffect(loadWorkloads, [token]);
+  // Workloads offered for the selected purpose (catalogue's `purposes`).
+  const purposeWorkloads = workloads.filter(w => (w.purposes || []).includes(form.purpose));
   const [error, setError] = useState(null);
 
   // Edit mode: fetch the existing entry and seed the form from it. Unlike
@@ -157,7 +177,9 @@ export default function PolicyForm() {
           ...f,
           datasetName: rules.dataset?.name || "",
           dataUrl: res.data.data_url || "",
-          application: rules.application?.id || f.application,
+          keyResourcePath: rules.key_resource_path || "",
+          // application: rules.application?.id || f.application,
+          allowedWorkloads: (rules.allowed_workloads || []).map(w => (typeof w === "string" ? w : w?.id)).filter(Boolean),
           allowedOrg: rules.allowedOrg?.id || f.allowedOrg,
           accessLevel: rules.accessLevel || f.accessLevel,
           purpose: rules.purpose || f.purpose,
@@ -187,9 +209,14 @@ export default function PolicyForm() {
   const onSubmit = async e => {
     e.preventDefault();
     setError(null);
+    // (Workload field removed — datasets aren't restricted to a workload.)
+    // if (form.allowedWorkloads.length === 0) {
+    //   setError("Select the workload this dataset may be used for.");
+    //   return;
+    // }
     setSubmitted(true);
 
-    const application = APPLICATIONS.find(a => a.id === form.application);
+    // const application = APPLICATIONS.find(a => a.id === form.application);
     const org = ORGS.find(o => o.id === form.allowedOrg);
 
     const payload = {
@@ -211,17 +238,32 @@ export default function PolicyForm() {
           id: form.datasetId,
           name: form.datasetName,
         },
-        application: {
-          id: form.application,
-          name: application?.name,
-        },
+        // application: {
+        //   id: form.application,
+        //   name: application?.name,
+        // },
+        // allowed_workloads: form.allowedWorkloads.map(id => ({
+        //   id,
+        //   name: workloads.find(w => w.id === id)?.name || id,
+        // })),
+        // Only the picked workloads that belong to the chosen purpose.
+        allowed_workloads: form.allowedWorkloads
+          .filter(id => purposeWorkloads.some(w => w.id === id))
+          .map(id => ({
+            id,
+            name: workloads.find(w => w.id === id)?.name || id,
+          })),
         allowedOrg: {
           id: form.allowedOrg,
           emailDomain: org?.label,
         },
-        accessLevel: form.accessLevel,
+        // accessLevel: form.accessLevel, // Access level removed from the form
         purpose: form.purpose,
         notes: form.notes,
+        // KBS key path for this dataset's decryption key — copied into the
+        // contract's data_providers[].trustee.key_resource_path (the KBS URL
+        // itself is gov_layer-wide). Blank lets gov_layer derive one.
+        key_resource_path: form.keyResourcePath.trim(),
         allowed_users: toList(form.allowedUsers),
         allowed_roles: toList(form.allowedRoles),
         required_roles: toList(form.requiredRoles),
@@ -250,7 +292,7 @@ export default function PolicyForm() {
       <div className="page-header">
         <div className="page-header-title">
           <h3 className="section-title" style={{ marginBottom: 0 }}>
-            {isEditMode ? "Edit Policy" : "Set Policy"}
+            {isEditMode ? "Edit Policy" : "Upload Dataset"}
           </h3>
           <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
             {isEditMode
@@ -325,6 +367,18 @@ export default function PolicyForm() {
                   disabled={submitted}
                 />
               </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label>Key Resource Path</label>
+                <input
+                  className="input"
+                  type="text"
+                  placeholder="e.g. default/mnist-key/dataset1"
+                  value={form.keyResourcePath}
+                  onChange={e => setForm(f => ({ ...f, keyResourcePath: e.target.value }))}
+                  disabled={submitted}
+                />
+              </div>
             </div>
           </div>
 
@@ -333,11 +387,12 @@ export default function PolicyForm() {
               <div className="form-section-icon"><IconClipboard /></div>
               <div className="form-section-titles">
                 <h4>Access Policy</h4>
-                <span>Application, audience &amp; permitted use</span>
+                {/* <span>Workloads, audience &amp; permitted use</span> */}
+                <span>Audience &amp; permitted use</span>
               </div>
             </div>
 
-            <div className="form-group">
+            {/* <div className="form-group">
               <label>Application (Model)</label>
               <select
                 className="select"
@@ -351,7 +406,35 @@ export default function PolicyForm() {
                   </option>
                 ))}
               </select>
-            </div>
+            </div> */}
+
+            {/* Workload field removed: a dataset may be used with any workload.
+            <div className="form-group">
+              <label>Workload *</label>
+              {workloadsError ? (
+                <div className="error-message" style={{ fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <span>{workloadsError}</span>
+                  <button type="button" className="btn btn-secondary" style={{ width: "auto" }} onClick={loadWorkloads}>
+                    Retry
+                  </button>
+                </div>
+              ) : (
+                <select
+                  className="select"
+                  value={form.allowedWorkloads[0] || ""}
+                  onChange={e => setForm(f => ({ ...f, allowedWorkloads: e.target.value ? [e.target.value] : [] }))}
+                  disabled={submitted}
+                  required
+                >
+                  <option value="" disabled>{workloads.length === 0 ? "Loading workloads..." : "Select a workload"}</option>
+                  {workloads.map(w => (
+                    <option key={w.id} value={w.id}>
+                      {w.name} ({w.cpu} CPU, {w.memory})
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div> */}
 
             <div className="form-group">
               <label>Allowed organisation (by email domain)</label>
@@ -370,6 +453,7 @@ export default function PolicyForm() {
             </div>
 
             <div className="grid" style={{ marginTop: "12px" }}>
+              {/* Access level removed.
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label>Access level</label>
                 <select
@@ -382,7 +466,7 @@ export default function PolicyForm() {
                   <option value="read-write">Read + Write</option>
                   <option value="aggregate">Aggregate only</option>
                 </select>
-              </div>
+              </div> */}
 
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label>Expires on (optional)</label>
@@ -401,7 +485,13 @@ export default function PolicyForm() {
               <select
                 className="select"
                 value={form.purpose}
-                onChange={e => setForm(f => ({ ...f, purpose: e.target.value }))}
+                // onChange={e => setForm(f => ({ ...f, purpose: e.target.value }))}
+                onChange={e => {
+                  const purpose = e.target.value;
+                  // Drop picked workloads the new purpose doesn't offer.
+                  const offered = workloads.filter(w => (w.purposes || []).includes(purpose)).map(w => w.id);
+                  setForm(f => ({ ...f, purpose, allowedWorkloads: f.allowedWorkloads.filter(id => offered.includes(id)) }));
+                }}
                 disabled={submitted}
               >
                 <option value="research">Research</option>
@@ -409,6 +499,39 @@ export default function PolicyForm() {
                 <option value="benchmarking">Benchmarking</option>
                 <option value="internal">Internal testing</option>
               </select>
+            </div>
+
+            <div className="form-group" style={{ marginTop: "12px", marginBottom: 0 }}>
+              <label>Workloads for this purpose</label>
+              {workloadsError ? (
+                <div className="error-message" style={{ fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <span>{workloadsError}</span>
+                  <button type="button" className="btn btn-secondary" style={{ width: "auto" }} onClick={loadWorkloads}>
+                    Retry
+                  </button>
+                </div>
+              ) : workloads.length === 0 ? (
+                <div style={{ fontSize: "12px", color: "var(--text-light)" }}>Loading workloads...</div>
+              ) : purposeWorkloads.length === 0 ? (
+                <div style={{ fontSize: "12px", color: "var(--text-light)" }}>No workloads are offered for this purpose.</div>
+              ) : (
+                purposeWorkloads.map(w => (
+                  <label key={w.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: "normal" }}>
+                    <input
+                      type="checkbox"
+                      checked={form.allowedWorkloads.includes(w.id)}
+                      onChange={e => setForm(f => ({
+                        ...f,
+                        allowedWorkloads: e.target.checked
+                          ? [...f.allowedWorkloads, w.id]
+                          : f.allowedWorkloads.filter(id => id !== w.id),
+                      }))}
+                      disabled={submitted}
+                    />
+                    {w.name} ({w.cpu} CPU, {w.memory})
+                  </label>
+                ))
+              )}
             </div>
           </div>
 
@@ -448,116 +571,6 @@ export default function PolicyForm() {
             </div>
           </div>
 
-          <div className="form-section">
-            <div className="form-section-head">
-              <div className="form-section-icon"><IconLock /></div>
-              <div className="form-section-titles">
-                <h4>Access Rules</h4>
-                <span>Fine-grained constraints &amp; notes</span>
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <input
-                  type="checkbox"
-                  checked={form.isPrivate}
-                  onChange={e => setForm(f => ({ ...f, isPrivate: e.target.checked }))}
-                  disabled={submitted}
-                />
-                Private dataset
-              </label>
-            </div>
-
-            <div className="form-group">
-              <label>Allowed Users (comma-separated)</label>
-              <input
-                className="input"
-                type="text"
-                value={form.allowedUsers}
-                onChange={e => setForm(f => ({ ...f, allowedUsers: e.target.value }))}
-                placeholder="e.g. alice, bob"
-                disabled={submitted}
-              />
-            </div>
-
-            <div className="grid">
-              <div className="form-group">
-                <label>Allowed Roles (comma-separated)</label>
-                <input
-                  className="input"
-                  type="text"
-                  value={form.allowedRoles}
-                  onChange={e => setForm(f => ({ ...f, allowedRoles: e.target.value }))}
-                  placeholder="e.g. data-provider, admin"
-                  disabled={submitted}
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Required Roles (comma-separated)</label>
-                <input
-                  className="input"
-                  type="text"
-                  value={form.requiredRoles}
-                  onChange={e => setForm(f => ({ ...f, requiredRoles: e.target.value }))}
-                  placeholder="e.g. output-owner"
-                  disabled={submitted}
-                />
-              </div>
-            </div>
-
-            <div className="grid">
-              <div className="form-group">
-                <label>Allowed Scopes (comma-separated)</label>
-                <input
-                  className="input"
-                  type="text"
-                  value={form.allowedScopes}
-                  onChange={e => setForm(f => ({ ...f, allowedScopes: e.target.value }))}
-                  placeholder="e.g. read, compute"
-                  disabled={submitted}
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Required Scopes (comma-separated)</label>
-                <input
-                  className="input"
-                  type="text"
-                  value={form.requiredScopes}
-                  onChange={e => setForm(f => ({ ...f, requiredScopes: e.target.value }))}
-                  placeholder="e.g. openid"
-                  disabled={submitted}
-                />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label>Allowed Actions (comma-separated)</label>
-              <input
-                className="input"
-                type="text"
-                value={form.allowedActions}
-                onChange={e => setForm(f => ({ ...f, allowedActions: e.target.value }))}
-                placeholder="e.g. compute, aggregate"
-                disabled={submitted}
-              />
-            </div>
-
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Notes</label>
-              <textarea
-                className="input"
-                style={{ minHeight: "96px" }}
-                value={form.notes}
-                onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                placeholder="Any additional constraints..."
-                disabled={submitted}
-              />
-            </div>
-          </div>
-
           <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end", marginTop: "16px", paddingTop: "16px", borderTop: "1px solid var(--border-color)" }}>
             <button
               className="btn btn-secondary"
@@ -570,8 +583,8 @@ export default function PolicyForm() {
             </button>
             <button className="btn btn-primary" style={{ width: "auto" }} type="submit" disabled={submitted}>
               {submitted
-                ? (isEditMode ? "Updating..." : "Setting...")
-                : (isEditMode ? "Update Policy" : "Set Policy")}
+                ? (isEditMode ? "Updating..." : "Uploading...")
+                : (isEditMode ? "Update Policy" : "Upload Dataset")}
             </button>
           </div>
         </form>

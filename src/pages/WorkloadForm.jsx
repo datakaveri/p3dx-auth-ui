@@ -1,16 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import {
-  previewContract, startTeeSession, getTeeSessionStatus,
-  downloadTeeSessionOutput, terminateTeeSession, getContractSignatures,
+  previewContract, runTeeJob, editContract, listWorkloads, /* startTeeSession, */ getTeeSessionStatus,
+  downloadTeeSessionOutput, terminateTeeSession, getContractSignatures, getLiveContract,
 } from "../api/workloads";
 import {
   listAvailableDatasets, listAvailableInfrastructure, getInfrastructureDetails,
 } from "../api/roleRequests";
 import ContractPreviewModal from "../components/ContractPreviewModal";
+import TeeJobProgress from "../components/TeeJobProgress";
 import {
   Database, Search, Server, Play, X, HardDrive, FileText, ChevronDown, ShieldCheck,
-  CheckCircle2, AlertCircle, Download, Loader2, RefreshCw, Square,
+  CheckCircle2, AlertCircle, Download, Loader2, RefreshCw, Square, Cpu,
 } from "lucide-react";
 
 // How often to poll gov_layer for the TEE session's status once started.
@@ -18,6 +19,11 @@ const TEE_SESSION_POLL_MS = 5000;
 
 // Statuses where the session is still in flight and worth polling.
 const TEE_SESSION_ACTIVE = new Set(["provisioning", "attesting", "running"]);
+
+// TEE only: the workload to run inside the enclave comes from gov_layer's
+// catalogue (services.KnownWorkloads, via GET /p3dx/workloads/catalog). The
+// selected id is sent as applicationId and lands in the contract's
+// application_providers party.
 
 const TEE_SESSION_LABELS = {
   provisioning: "Starting the confidential VM (cold boot can take a minute)…",
@@ -93,6 +99,8 @@ export default function WorkloadForm() {
   // Infrastructure selection (InfraCat) only applies to SMPC — Spider/FL/TEE
   // never show or require it.
   const isSMPCTechnique = technique === "SMPC";
+  // Workload selection only applies to TEE — exactly one is required.
+  const isTEETechnique = technique === "TEE";
 
   // Redirect admins
   useEffect(() => {
@@ -100,14 +108,32 @@ export default function WorkloadForm() {
   }, [isAdmin]);
 
   // Catalogue state
-  // SMPC only: which catalogue tab is active. Datasets/TEE/FL never see tabs
-  // at all, so this only matters when isSMPCTechnique is true.
+  // SMPC/TEE only: which catalogue tab is active ("dataset" | "infra" for
+  // SMPC, "dataset" | "workload" for TEE). FL never sees tabs at all.
   const [activeTab, setActiveTab] = useState("dataset");
+  const showInfraTab = isSMPCTechnique && activeTab === "infra";
+  const showWorkloadTab = isTEETechnique && activeTab === "workload";
   // Each tab keeps its own independent search term.
   const [datasetSearchQuery, setDatasetSearchQuery] = useState("");
   const [infraSearchQuery, setInfraSearchQuery] = useState("");
   // Any number >= 1 of datasets may be selected (was a single scalar id).
   const [selectedDatasetIds, setSelectedDatasetIds] = useState([]);
+  // TEE only: single selection from the workload catalogue (null until picked).
+  const [workloads, setWorkloads] = useState([]);
+  const [workloadsError, setWorkloadsError] = useState(null);
+  const [selectedWorkloadId, setSelectedWorkloadId] = useState(null);
+  // TEE: the consumer's stated purpose of processing, carried into the
+  // contract and shown to data providers in their DPDP consent notice.
+  const [purpose, setPurpose] = useState("");
+  const selectedWorkload = workloads.find(w => w.id === selectedWorkloadId) || null;
+  const loadWorkloads = () => {
+    if (!token || technique !== "TEE") return;
+    setWorkloadsError(null);
+    listWorkloads(token)
+      .then(list => setWorkloads(list))
+      .catch(err => setWorkloadsError(err.message || "Failed to load workloads"));
+  };
+  useEffect(loadWorkloads, [token, technique]);
 
   // Real, registered datasets (from APD via aaa's /available-datasets) — each
   // a {id, name} pair (id is the real item_id a by-item policy lookup needs;
@@ -186,17 +212,30 @@ export default function WorkloadForm() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isTerminating, setIsTerminating] = useState(false);
   const [downloadError, setDownloadError] = useState(null);
+  // Run TEE's coordinator job: null | { job, subContract } | { error }
+  const [teeJob, setTeeJob] = useState(null);
   // TEE and SMPC: each data provider must sign the generated contract's hash
   // before a run is allowed (gov_layer enforces this too).
   const [signatureStatus, setSignatureStatus] = useState(null);
   const [signatureError, setSignatureError] = useState(null);
+  // Set when a data provider sets their consent expiry: gov_layer updates
+  // the stored contract, which the signature poll below picks up.
+  const [consentExpiryNotice, setConsentExpiryNotice] = useState(null);
+  const generatedContractRef = useRef(null);
+  generatedContractRef.current = generatedContract;
   const needsSignatures = technique === "TEE" || technique === "SMPC";
   const allSigned = !needsSignatures || signatureStatus?.tee === "can run";
+  // TEE: the consumer can edit the generated contract (workload, dates,
+  // dataset fields) in place, even after signing. gov_layer accepts the edit
+  // as an amendment, so the providers don't re-sign and the run goes ahead
+  // with the edited details.
+  const [contractEdited, setContractEdited] = useState(false);
 
   // Filtered lists
   const filteredDatasetList = useMemo(() => {
     const q = datasetSearchQuery.toLowerCase();
-    return datasetList.filter(d => !q || d.name.toLowerCase().includes(q));
+    // return datasetList.filter(d => !q || d.name.toLowerCase().includes(q));
+    return datasetList.filter(d => !q || d.name.toLowerCase().includes(q) || (d.provider || "").toLowerCase().includes(q));
   }, [datasetList, datasetSearchQuery]);
 
   const filteredInfraList = useMemo(() => {
@@ -258,12 +297,17 @@ export default function WorkloadForm() {
   const handleGenerateContract = async () => {
     if (selectedDatasetIds.length === 0 || !technique) return;
     if (isSMPCTechnique && selectedInfraIds.length !== 2) return;
+    if (isTEETechnique && !selectedWorkloadId) return;
+    // if (isTEETechnique && !purpose.trim()) return; // purpose is optional for now
     setError(null);
     setGeneratedContract(null);
+    setConsentExpiryNotice(null);
+    setContractEdited(false);
     setSignatureStatus(null);
     setSignatureError(null);
     setTeeSession(null);
     setDownloadError(null);
+    setTeeJob(null);
     setIsGenerating(true);
     try {
       if (!token) throw new Error("MISSING_AUTH_TOKEN");
@@ -271,10 +315,11 @@ export default function WorkloadForm() {
         datasets: selectedDatasets.map(d => ({ datasetId: d.id, datasetName: d.name })),
         technique,
         infraIds: selectedInfraIds,
+        ...(isTEETechnique ? { applicationId: selectedWorkloadId, ...(purpose.trim() ? { purpose: purpose.trim() } : {}) } : {}),
       });
       const contract = res?.contract || null;
       setGeneratedContract(contract);
-      // Policies set on the "Set Policy" page can carry a data URL for the
+      // Policies set on the "Upload Dataset" page can carry a data URL for the
       // dataset — prefill the run form with it so the consumer doesn't have
       // to re-type a URL the provider already declared. With multiple
       // datasets selected there's no single "the" data URL for the run
@@ -282,30 +327,58 @@ export default function WorkloadForm() {
       // dataset feeding startTeeSession further down).
       setDatasetUrl(contract?.parties?.data_providers?.[0]?.data_url || "");
     } catch (err) {
-      setError(err.message || "Contract generation failed");
+      setError(err.message || "Consent request generation failed");
     } finally {
       setIsGenerating(false);
     }
   };
 
+  // Run TEE: gov_layer builds the CreateJob sub-contract from this contract and
+  // runs grpcurl against the Kata coordinator. The old Azure confidential-VM
+  // session call is kept commented out below.
   const handleRunTee = async () => {
-    if (!datasetUrl) return;
-    setDownloadError(null);
+    if (!generatedContract?.contract_id) return;
+    setTeeJob(null);
     setIsStartingRun(true);
     try {
-      const res = await startTeeSession(token, {
-        datasetUrl,
-        // TEE session run is still single-dataset — use the first selected
-        // one, matching datasetUrl's own "first dataset" fallback above.
-        datasetId: selectedDatasetIds[0],
-        datasetName: selectedDatasets[0]?.name,
-        contractId: generatedContract?.contract_id,
-      });
-      setTeeSession({ sessionId: res.sessionId, status: res.status || "provisioning", error: null });
+      const res = await runTeeJob(token, generatedContract.contract_id);
+      setTeeJob({ job: res.job || {}, subContract: res.subContract });
     } catch (err) {
-      setTeeSession({ sessionId: null, status: "failed", error: err.message || "Failed to start TEE session" });
+      setTeeJob({ error: err.message || "Run TEE failed" });
     } finally {
       setIsStartingRun(false);
+    }
+    // if (!datasetUrl) return;
+    // setDownloadError(null);
+    // setIsStartingRun(true);
+    // try {
+    //   const res = await startTeeSession(token, {
+    //     datasetUrl,
+    //     // TEE session run is still single-dataset — use the first selected
+    //     // one, matching datasetUrl's own "first dataset" fallback above.
+    //     datasetId: selectedDatasetIds[0],
+    //     datasetName: selectedDatasets[0]?.name,
+    //     contractId: generatedContract?.contract_id,
+    //   });
+    //   setTeeSession({ sessionId: res.sessionId, status: res.status || "provisioning", error: null });
+    // } catch (err) {
+    //   setTeeSession({ sessionId: null, status: "failed", error: err.message || "Failed to start TEE session" });
+    // } finally {
+    //   setIsStartingRun(false);
+    // }
+  };
+
+  // Called by the preview popup's Edit/Save; errors propagate to the popup.
+  const handleSaveContractEdit = async changes => {
+    if (!generatedContract?.contract_id) return;
+    const res = await editContract(token, generatedContract.contract_id, changes);
+    if (res?.contract) setGeneratedContract(res.contract);
+    setContractEdited(true);
+    setTeeJob(null);
+    try {
+      setSignatureStatus(await getContractSignatures(token, generatedContract.contract_id));
+    } catch {
+      // the polled status is only informational here
     }
   };
 
@@ -348,6 +421,20 @@ export default function WorkloadForm() {
         if (cancelled) return;
         setSignatureStatus(status);
         setSignatureError(null);
+        // Pick up consent expiries data providers set after generation.
+        try {
+          const live = await getLiveContract(token, contractIdForSignatures);
+          if (!cancelled && live && consentExpiryKey(live) !== consentExpiryKey(generatedContractRef.current)) {
+            setGeneratedContract(live);
+            const set = (live.parties?.data_providers || []).filter(dp => dp.constraints?.consent_valid_until);
+            setConsentExpiryNotice(set.length
+              ? set.map(dp => `${dp.name || dp.id} set consent to expire on ${new Date(dp.constraints.consent_valid_until).toLocaleString()}`).join("; ")
+                + " — the consent request was updated and re-sent to the data providers for signature."
+              : null);
+          }
+        } catch {
+          // keep showing the contract as generated
+        }
         if (status?.tee === "can run") return;
       } catch (err) {
         if (cancelled) return;
@@ -380,12 +467,16 @@ export default function WorkloadForm() {
     return () => clearInterval(interval);
   }, [teeSession?.sessionId, teeSession?.status, token]);
 
-  const canRun = selectedDatasetIds.length > 0 && technique && (!isSMPCTechnique || selectedInfraIds.length === 2);
+  const canRun = selectedDatasetIds.length > 0 && technique
+    && (!isSMPCTechnique || selectedInfraIds.length === 2)
+    && (!isTEETechnique || !!selectedWorkloadId); // purpose no longer required: && !!purpose.trim()
   const missingItems = [];
   if (selectedDatasetIds.length === 0) missingItems.push("at least one dataset");
   if (isSMPCTechnique && selectedInfraIds.length !== 2) {
     missingItems.push(`exactly 2 infrastructure providers (${selectedInfraIds.length} selected)`);
   }
+  if (isTEETechnique && !selectedWorkloadId) missingItems.push("a workload");
+  // if (isTEETechnique && !purpose.trim()) missingItems.push("the purpose of processing");
   if (!technique) missingItems.push("service (go back to Services and start from SMPC or Anonymization)");
 
   return (
@@ -393,14 +484,18 @@ export default function WorkloadForm() {
       {/* Left sidebar */}
       <aside className="cat-sidebar">
         <div className="cat-sidebar__header">
-          {isSMPCTechnique && activeTab === "infra" ? <HardDrive size={16} /> : <Database size={16} />}
-          <span>{isSMPCTechnique && activeTab === "infra" ? "Infrastructure" : "Datasets"}</span>
+          {showInfraTab ? <HardDrive size={16} /> : showWorkloadTab ? <Cpu size={16} /> : <Database size={16} />}
+          <span>{showInfraTab ? "Infrastructure" : showWorkloadTab ? "Workloads" : "Datasets"}</span>
         </div>
         <div className="cat-sidebar__nav" style={{ padding: "10px 14px", fontSize: 13, color: "var(--text-light)" }}>
-          {isSMPCTechnique && activeTab === "infra"
+          {showInfraTab
             ? "Registered infrastructure isn't categorized yet — search by name or region instead."
-            : "Registered datasets aren't categorized yet — search by name instead."}
+            : showWorkloadTab
+              ? "Pick the one workload the TEE should run on the selected dataset(s)."
+              : "Registered datasets aren't categorized yet — search by name instead."}
         </div>
+        {/* Run TEE progress: polls the coordinator's GetJob every 5s. */}
+        {teeJob?.job?.jobId && <TeeJobProgress token={token} jobId={teeJob.job.jobId} />}
       </aside>
 
       {/* Main content */}
@@ -427,9 +522,30 @@ export default function WorkloadForm() {
               </button>
             </div>
           )}
+          {isTEETechnique && (
+            <div className="cat-tabs">
+              <button
+                type="button"
+                className={`cat-tab${activeTab === "dataset" ? " cat-tab--active" : ""}`}
+                onClick={() => setActiveTab("dataset")}
+              >
+                <Database size={14} />
+                Datasets
+              </button>
+              <button
+                type="button"
+                className={`cat-tab${activeTab === "workload" ? " cat-tab--active" : ""}`}
+                onClick={() => setActiveTab("workload")}
+              >
+                <Cpu size={14} />
+                Workload
+              </button>
+            </div>
+          )}
+          {!showWorkloadTab && (
           <div className="cat-search">
             <Search size={14} className="cat-search__icon" />
-            {isSMPCTechnique && activeTab === "infra" ? (
+            {showInfraTab ? (
               <input
                 className="cat-search__input"
                 placeholder="Search infrastructure..."
@@ -445,6 +561,7 @@ export default function WorkloadForm() {
               />
             )}
           </div>
+          )}
           <button
             className="btn btn-secondary cat-back-btn"
             onClick={() => navigate(returnTo)}
@@ -455,7 +572,33 @@ export default function WorkloadForm() {
 
         {/* Content area */}
         <div className="cat-content">
-          {isSMPCTechnique && activeTab === "infra" ? (
+          {showWorkloadTab ? (
+            /* Workload tab — TEE only, single selection (clicking the selected one clears it). */
+            <div className="cat-list">
+              {workloadsError && (
+                <div className="error-message" style={{ fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <span>{workloadsError}</span>
+                  <button type="button" className="btn btn-secondary" style={{ width: "auto" }} onClick={loadWorkloads}>
+                    Retry
+                  </button>
+                </div>
+              )}
+              <div className="cat-simple-list">
+                {workloads.map(w => (
+                  <button
+                    key={w.id}
+                    type="button"
+                    className={`cat-simple-item${selectedWorkloadId === w.id ? " cat-simple-item--selected" : ""}`}
+                    onClick={() => setSelectedWorkloadId(prev => (prev === w.id ? null : w.id))}
+                  >
+                    <Cpu size={16} />
+                    <span className="cat-simple-item__name">{w.name}</span>
+                    {selectedWorkloadId === w.id && <CheckCircle2 size={15} />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : showInfraTab ? (
             /* Infrastructure Catalogue (InfraCat) tab — SMPC only. */
             <div className="cat-list">
               {infraLoading ? (
@@ -532,7 +675,7 @@ export default function WorkloadForm() {
               )}
             </div>
           ) : (
-            /* Dataset tab — default, and the only tab for FL/TEE (no tab bar shown at all). */
+            /* Dataset tab — default, and the only tab for FL (no tab bar shown at all). */
             <div className="cat-list">
               {datasetsLoading ? (
                 <div className="cat-empty">
@@ -556,6 +699,11 @@ export default function WorkloadForm() {
                     >
                       <Database size={16} />
                       <span className="cat-simple-item__name">{d.name}</span>
+                      {d.provider && (
+                        <span style={{ fontSize: 12, color: "var(--text-light)", whiteSpace: "nowrap" }}>
+                          by {d.provider}
+                        </span>
+                      )}
                       {selectedDatasetIds.includes(d.id) && <CheckCircle2 size={15} />}
                     </button>
                   ))}
@@ -621,6 +769,28 @@ export default function WorkloadForm() {
           </div>
         </div>
 
+        {/* Workload slot — TEE only, exactly 1 required */}
+        {isTEETechnique && (
+          <div className={`cat-slot${selectedWorkload ? " cat-slot--filled" : ""}`}>
+            <div className="cat-slot__icon">
+              <Cpu size={16} />
+            </div>
+            <div className="cat-slot__info">
+              <div className="cat-slot__label">Workload</div>
+              {selectedWorkload ? (
+                <div className="cat-slot__value" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <span>{selectedWorkload.name}</span>
+                  <button className="cat-icon-btn cat-slot__clear" onClick={() => setSelectedWorkloadId(null)} title="Clear">
+                    <X size={13} />
+                  </button>
+                </div>
+              ) : (
+                <div className="cat-slot__placeholder">No workload selected</div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Infrastructure slot(s) — SMPC only, exactly 2 required */}
         {isSMPCTechnique && (
           <div className={`cat-slot${selectedInfraIds.length ? " cat-slot--filled" : ""}`}>
@@ -645,10 +815,33 @@ export default function WorkloadForm() {
           </div>
         )}
 
+        {/* TEE: purpose of processing — shown to data providers in the DPDP
+            Rule 3 consent notice and covered by the signed contract hash. */}
+        {/* Hidden for now — purpose is optional.
+        {isTEETechnique && (
+          <div style={{ marginBottom: 12 }}>
+            <label className="label" htmlFor="tee-purpose">Purpose of processing</label>
+            <textarea
+              id="tee-purpose"
+              className="input"
+              rows={3}
+              maxLength={1000}
+              value={purpose}
+              onChange={e => setPurpose(e.target.value)}
+              placeholder="e.g. Anonymise hospital admission records to study seasonal bed occupancy"
+              style={{ width: "100%", resize: "vertical" }}
+            />
+            <div style={{ fontSize: 12, color: "var(--text-light)", marginTop: 4 }}>
+              Shown to each data provider in their consent notice. Their consent covers this purpose only.
+            </div>
+          </div>
+        )}
+        */}
+
         {/* Status */}
         <div className={`cat-status${canRun ? " cat-status--ready" : ""}`}>
           {canRun
-            ? <><CheckCircle2 size={15} /><span>Ready to generate contract</span></>
+            ? <><CheckCircle2 size={15} /><span>Ready to generate consent request</span></>
             : <><AlertCircle size={15} /><span>Select {missingItems.join(", ")} to continue</span></>
           }
         </div>
@@ -662,9 +855,9 @@ export default function WorkloadForm() {
           onClick={handleGenerateContract}
         >
           {isGenerating ? (
-            "Generating Contract..."
+            "Generating Consent Request..."
           ) : (
-            <><Play size={14} style={{ marginRight: 6 }} />Generate Contract</>
+            <><Play size={14} style={{ marginRight: 6 }} />Generate Consent Request</>
           )}
         </button>
 
@@ -672,7 +865,7 @@ export default function WorkloadForm() {
           <div className="card" style={{ marginTop: 14 }}>
             <div className="cat-summary__header" style={{ padding: 0, marginBottom: 10 }}>
               <CheckCircle2 size={16} />
-              <span>Generated Contract (preview only — not submitted)</span>
+              <span>Generated Consent Request (preview only — not submitted)</span>
             </div>
             <div className="grid">
               <div>
@@ -684,13 +877,18 @@ export default function WorkloadForm() {
                 <div className="value" style={{ fontSize: 12, wordBreak: "break-all" }}>{generatedContract.contract_id}</div>
               </div>
             </div>
+            {consentExpiryNotice && (
+              <div className="info-banner" style={{ marginTop: 12, marginBottom: 0, fontSize: 13 }}>
+                {consentExpiryNotice}
+              </div>
+            )}
             <button
               type="button"
               className="btn btn-secondary"
               style={{ width: "100%", marginTop: 12 }}
               onClick={() => setShowContractPreview(true)}
             >
-              <FileText size={14} style={{ marginRight: 6 }} />Preview Contract
+              <FileText size={14} style={{ marginRight: 6 }} />Preview Consent Request
             </button>
 
             {(technique === "TEE" || technique === "SMPC") && (
@@ -709,9 +907,19 @@ export default function WorkloadForm() {
                             <div style={{ color: allSigned ? "var(--success, #2e7d32)" : "var(--text-light)" }}>
                               {allSigned ? "Signatures matching ✓ — can run" : "Signatures not matching yet"}
                             </div>
-                            {!allSigned && (
+                            {/* {contractEdited && (
+                              <div className="error-message" style={{ marginTop: 6, fontSize: 13 }}>
+                                Edited after signing — this consent request no longer matches what the data providers signed, so the run will be refused.
+                              </div>
+                            )} */}
+                            {contractEdited && (
+                              <div style={{ marginTop: 6, fontSize: 13, color: "var(--text-light)" }}>
+                                Edited — the change is accepted without the data providers signing again; the run uses the new details.
+                              </div>
+                            )}
+                            {!allSigned && !contractEdited && (
                               <div style={{ marginTop: 6, color: "var(--text-light)" }}>
-                                This can't run until every data provider has signed this contract.
+                                This can't run until every data provider has signed this consent request.
                               </div>
                             )}
                           </>
@@ -720,25 +928,39 @@ export default function WorkloadForm() {
                     )}
                     {!datasetUrl && (
                       <div className="error-message" style={{ marginBottom: 10, fontSize: 13 }}>
-                        This dataset's policy has no data URL set — go to Set Policy and add one before running.
+                        This dataset's policy has no data URL set — go to Upload Dataset and add one before running.
                       </div>
                     )}
                     <button
                       type="button"
                       className="btn btn-primary"
                       style={{ width: "100%" }}
-                      disabled={isStartingRun || !datasetUrl || !allSigned}
+                      disabled={isStartingRun || !datasetUrl || (!allSigned && !contractEdited)}
                       onClick={handleRunTee}
                     >
                       {isStartingRun ? (
-                        <><Loader2 size={14} className="spin" style={{ marginRight: 6 }} />Starting TEE session...</>
+                        <><Loader2 size={14} className="spin" style={{ marginRight: 6 }} />Submitting job...</>
                       ) : (
                         <><Play size={14} style={{ marginRight: 6 }} />Run TEE</>
                       )}
                     </button>
                     <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-light)" }}>
-                      This starts a real confidential VM — it bills while running.
+                      Submits this contract's workload to the Kata coordinator (grpcurl CreateJob).
+                      {/* This starts a real confidential VM — it bills while running. */}
                     </div>
+                    {teeJob?.error && (
+                      <div className="error-message" style={{ marginTop: 10, fontSize: 13 }}>
+                        {teeJob.error}
+                      </div>
+                    )}
+                    {teeJob?.job && (
+                      <div style={{ marginTop: 10, fontSize: 13 }}>
+                        <div style={{ color: "var(--success, #2e7d32)", marginBottom: 4 }}>Job submitted ✓</div>
+                        <div>Job ID: <code>{teeJob.job.jobId || "—"}</code></div>
+                        {/* <div>State: {teeJob.job.state || "—"}</div> */}
+                        {teeJob.job.reason && <div>Reason: {teeJob.job.reason}</div>}
+                      </div>
+                    )}
                     {teeSession?.status === "failed" && (
                       <div className="error-message" style={{ marginTop: 10, fontSize: 13 }}>
                         {teeSession.error || "TEE session failed"}
@@ -839,7 +1061,16 @@ export default function WorkloadForm() {
         open={showContractPreview}
         contract={generatedContract}
         onClose={() => setShowContractPreview(false)}
+        onEdit={technique === "TEE" ? handleSaveContractEdit : undefined}
+        workloads={workloads}
       />
     </div>
   );
+}
+
+// Each data provider's consent expiry on c, as one comparable string.
+function consentExpiryKey(c) {
+  return (c?.parties?.data_providers || [])
+    .map(dp => `${dp.id}:${dp.constraints?.consent_valid_until || ""}`)
+    .join("|");
 }

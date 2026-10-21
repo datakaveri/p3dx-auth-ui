@@ -1,7 +1,8 @@
 import { BACKEND_URL } from "../config";
+import { authFetch } from "./session";
 
 export async function getKeyPairStatus(token, roleName) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/keys/${encodeURIComponent(roleName)}/status`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/keys/${encodeURIComponent(roleName)}/status`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   return res.json();
@@ -36,7 +37,7 @@ export async function generateAndRegisterKeyPair(token, roleName) {
     throw new Error("Private key was not saved — key pair not registered");
   }
 
-  const res = await fetch(`${BACKEND_URL}/p3dx/keys/${encodeURIComponent(roleName)}/public-key`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/keys/${encodeURIComponent(roleName)}/public-key`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -49,6 +50,20 @@ export async function generateAndRegisterKeyPair(token, roleName) {
     throw new Error(data?.error || `Registering public key failed (${res.status})`);
   }
   return data;
+}
+
+// Saves the registered public key (from getKeyPairStatus's publicKey) as a
+// .pem file — public, so a plain download is fine.
+export function downloadPublicKeyFile(publicKeyPem, filename) {
+  const blob = new Blob([publicKeyPem], { type: "application/x-pem-file" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function toPem(buffer, label) {

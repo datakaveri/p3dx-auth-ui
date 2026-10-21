@@ -15,6 +15,8 @@ import PolicyForm from "./pages/PolicyForm";
 import InfraPolicyForm from "./pages/InfraPolicyForm";
 import MyInfraDashboard from "./pages/MyInfraDashboard";
 import MyDatasetsDashboard from "./pages/MyDatasetsDashboard";
+import MyContractsDashboard from "./pages/MyContractsDashboard";
+import MyAuditDashboard from "./pages/MyAuditDashboard";
 import WorkloadForm from "./pages/WorkloadForm";
 import WorkloadResult from "./pages/WorkloadResult";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -44,6 +46,8 @@ export const router = createBrowserRouter([
       { path: "services/policies", element: <PolicyForm /> },
       { path: "services/policies/my", element: <MyDatasetsDashboard /> },
       { path: "services/policies/edit/:itemId", element: <PolicyForm /> },
+      { path: "services/contracts", element: <MyContractsDashboard /> },
+      { path: "services/audit", element: <MyAuditDashboard /> },
       { path: "services/infra-policy", element: <InfraPolicyForm /> },
       { path: "services/infra-policy/my", element: <MyInfraDashboard /> },
       { path: "services/infra-policy/edit/:itemId", element: <InfraPolicyForm /> },

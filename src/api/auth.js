@@ -1,4 +1,5 @@
 import { BACKEND_URL } from "../config";
+import { authFetch } from "./session";
 
 async function parseJsonSafe(res) {
   try {
@@ -17,7 +18,7 @@ function buildHttpError(res, data, fallbackMessage) {
 }
 
 export async function registerUser(payload) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/register`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -30,7 +31,7 @@ export async function registerUser(payload) {
 }
 
 export async function loginUser(payload) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/login`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -43,7 +44,7 @@ export async function loginUser(payload) {
 }
 
 export async function refreshAccessToken(refreshToken) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/refresh-token`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/refresh-token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ refresh_token: refreshToken }),
@@ -56,7 +57,7 @@ export async function refreshAccessToken(refreshToken) {
 }
 
 export async function getMe(token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/me`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/me`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -69,7 +70,7 @@ export async function getMe(token) {
 }
 
 export async function notifyProviders(selectedProviders, requestedProviders, outputOwnerId, submissionId, token, willingProviders = []) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/notify-providers`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/notify-providers`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -92,7 +93,7 @@ export async function notifyProviders(selectedProviders, requestedProviders, out
 }
 
 export async function getMyNotifications(token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/my-notifications`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/my-notifications`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -107,7 +108,7 @@ export async function getMyNotifications(token) {
 // The caller's own Projects list — fl-orchestrator sees every project,
 // anyone else sees only their own (as output owner).
 export async function getMyProjects(token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/projects`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/projects`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -120,7 +121,7 @@ export async function getMyProjects(token) {
 }
 
 export async function markNotificationRead(notificationId, token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/notifications/${notificationId}/read`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/notifications/${notificationId}/read`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -136,7 +137,7 @@ export async function markNotificationRead(notificationId, token) {
 // A selected provider answers a participation request. response is
 // "accepted" | "declined"; message is an optional reason for the output owner.
 export async function respondToNotification(notificationId, response, message, token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/notifications/${notificationId}/respond`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/notifications/${notificationId}/respond`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -154,7 +155,7 @@ export async function respondToNotification(notificationId, response, message, t
 // Output owner: send the final participant roster (who's willing + who was
 // selected) to the selected providers, after the consent round.
 export async function notifyRoster(selectedProviders, willingProviders, outputOwnerId, submissionId, token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/notify-roster`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/notify-roster`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -179,7 +180,7 @@ export async function notifyRoster(selectedProviders, willingProviders, outputOw
 // pages/fl_orchestrator/FL_Orchestrator.jsx) rather than starting it directly - the owner
 // just gets a "requested, waiting" result back.
 export async function queueFlSession(submissionId, participatingProviders, vmName, token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/gov/queue-fl-session`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/gov/queue-fl-session`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -202,7 +203,7 @@ export async function queueFlSession(submissionId, participatingProviders, vmNam
 // contract): {signatures: "matching"|"not matching", tee: "can run"|"cannot run"}.
 // "Start FL Session" stays disabled until tee is "can run".
 export async function getSessionContractSignatures(submissionId, token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/contracts/by-session/${encodeURIComponent(submissionId)}/signatures`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/contracts/by-session/${encodeURIComponent(submissionId)}/signatures`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const data = await parseJsonSafe(res);
@@ -215,7 +216,7 @@ export async function getSessionContractSignatures(submissionId, token) {
 // Output owner: second half of "Start Again" - once every provider has signed
 // the restart's new contract, queue the session for the fl-orchestrator.
 export async function queueRestartedFlSession(submissionId, providerUsernames, token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/gov/restart-fl-session/queue`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/gov/restart-fl-session/queue`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -238,7 +239,7 @@ export async function queueRestartedFlSession(submissionId, providerUsernames, t
 // invite/accept) and sends it to every provider to sign. The session is
 // queued afterwards via queueRestartedFlSession, once all have signed.
 export async function restartFlSession(submissionId, providerUsernames, token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/gov/restart-fl-session`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/gov/restart-fl-session`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -262,7 +263,7 @@ export async function restartFlSession(submissionId, providerUsernames, token) {
 // notification to the real owner (rather than "fl-orchestrator", the actual
 // caller) - see the matching parameter on the backend route.
 export async function startFlSession(submissionId, azureToken, participatingProviders, token, outputOwnerUsername) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/gov/start-fl-session`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/gov/start-fl-session`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -287,7 +288,7 @@ export async function startFlSession(submissionId, azureToken, participatingProv
 // VM token straight to the orchestrator - the browser only ever gets back
 // an opaque credential_id to pass on to triggerAutoProvision.
 export async function issueVmCredential(submissionId, password, token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/fl/vm-credentials`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/fl/vm-credentials`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -308,7 +309,7 @@ export async function issueVmCredential(submissionId, password, token) {
 // Data provider: tell the output owner that Azure sign-in for this FL
 // session is done, so their dashboard can show it live.
 export async function notifyAzureSignIn(ownerUsername, submissionId, token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/gov/azure-signin`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/gov/azure-signin`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -326,7 +327,7 @@ export async function notifyAzureSignIn(ownerUsername, submissionId, token) {
 // Output owner: read back the stored FL session contract (draft before Final
 // Roster, finalized after) for a submission id, so it can be viewed in the UI.
 export async function getSessionContract(sessionId, token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/contract/${encodeURIComponent(sessionId)}`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/contract/${encodeURIComponent(sessionId)}`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
@@ -342,7 +343,7 @@ export async function getSessionContract(sessionId, token) {
 // can have several projects now - draft, final, and any "Start Again"
 // restarts each mint their own project_id/contract).
 export async function getContractByProject(projectId, token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/contract/by-project/${encodeURIComponent(projectId)}`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/contract/by-project/${encodeURIComponent(projectId)}`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
@@ -357,7 +358,7 @@ export async function getContractByProject(projectId, token) {
 // Output owner: fetch the participation responses for notifications this user
 // sent (each selected provider's accepted/declined status + reason).
 export async function getNotificationResponses(token) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/notification-responses`, {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/notification-responses`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
