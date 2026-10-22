@@ -50,6 +50,8 @@ function isExpiringSoon(token) {
 }
 
 let inflight = null;
+let lastRefreshAt = 0;
+const RECENT_REFRESH_MS = 30_000;
 
 // Single-flight refresh: concurrent callers share one /refresh-token request
 // (Keycloak rotates refresh tokens, so parallel refreshes would race).
@@ -66,6 +68,7 @@ export function refreshSession() {
       sessionStorage.setItem("access_token", res.access_token);
       if (res.refresh_token) sessionStorage.setItem("refresh_token", res.refresh_token);
       if (res.expires_in) sessionStorage.setItem("expires_in", String(res.expires_in));
+      lastRefreshAt = Date.now();
       window.dispatchEvent(new CustomEvent(TOKEN_REFRESHED_EVENT, { detail: res.access_token }));
       return res.access_token;
     } catch (err) {
@@ -100,6 +103,11 @@ export async function authFetch(url, options = {}) {
   const token = await getFreshAccessToken();
   const res = await fetch(url, token ? withBearer(options, token) : options);
   if (res.status !== 401) return res;
+
+  // A 401 on a token that was just refreshed isn't an expiry (e.g. a
+  // service that doesn't trust this Keycloak) — refreshing again would
+  // re-render every page with the "new" token and refetch forever.
+  if (Date.now() - lastRefreshAt < RECENT_REFRESH_MS) return res;
 
   const retryToken = await refreshSession();
   if (!retryToken) {

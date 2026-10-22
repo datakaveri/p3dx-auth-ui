@@ -3330,6 +3330,11 @@ textarea.input {
   border-color: rgba(239, 68, 68, 0.35);
   background: rgba(239, 68, 68, 0.05);
 }
+.fl-provider-card--removed {
+  border-color: rgba(153, 27, 27, 0.5);
+  background: rgba(239, 68, 68, 0.08);
+  opacity: 0.85;
+}
 
 .fl-provider-identity {
   display: flex;
@@ -3426,6 +3431,12 @@ textarea.input {
   border: 1px solid rgba(239, 68, 68, 0.3);
 }
 .fl-status-badge--declined .fl-status-dot { background: var(--error-color); }
+.fl-status-badge--removed {
+  background: #991b1b;
+  color: #fff;
+  border: 1px solid #991b1b;
+}
+.fl-status-badge--removed .fl-status-dot { background: #fff; }
 
 .fl-decline-reason {
   margin-top: 8px;
