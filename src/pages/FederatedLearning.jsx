@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 import { BACKEND_URL } from '../config';
 import { notifyProviders, getNotificationResponses, notifyRoster, getSessionContract, getMyNotifications, queueFlSession, getSessionContractSignatures, getRemovedProviders } from '../api/auth';
 import ContractSignatureStatus from '../components/ContractSignatureStatus';
+import { getFlOutput, collectFlOutput } from '../api/flOutput';
+import { outputTeaser } from '../components/fl/flOutputFormat';
 
 const GOVERNANCE_LAYER_URL = `${BACKEND_URL}/p3dx/form-submissions`;
 const DATA_PROVIDER_FORM_URL = `${BACKEND_URL}/p3dx/data-provider-forms`;
@@ -149,6 +151,122 @@ function generateFormId() {
   return `fl-${datePart}-${suffix}`;
 }
 
+const FL_OUTPUT_POLL_MS = 15000;
+
+// "FL output" card for the Output Owner. Polls gov_layer for the session's
+// output (pulled from the server VM when training finishes) until it's ready,
+// pausing while the tab is hidden; "View output" opens pages/FlOutput.jsx.
+// Keyed by submissionId at the call site, so a new session starts fresh.
+function FlOutputSection({ submissionId, token, sessionName }) {
+  const navigate = useNavigate();
+  const [output, setOutput] = useState(null);
+  const [error, setError] = useState(null);
+  const [collecting, setCollecting] = useState(false);
+  const [collectError, setCollectError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let stopped = false;
+    let timer = null;
+    const stop = () => { stopped = true; clearInterval(timer); };
+    const load = async () => {
+      if (stopped || document.hidden) return;
+      try {
+        const data = await getFlOutput(submissionId, sessionStorage.getItem('access_token') || token);
+        if (cancelled) return;
+        setOutput(data);
+        setError(null);
+        if (data?.status === 'ready') {
+          setCollecting(false);
+          stop();
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setError(err);
+        // Not the owner - polling won't change that.
+        if (err.statusCode === 403) stop();
+      }
+    };
+    load();
+    timer = setInterval(load, FL_OUTPUT_POLL_MS);
+    const onVisible = () => { if (!document.hidden) load(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [submissionId, token]);
+
+  const handleCollect = async () => {
+    setCollectError(null);
+    setCollecting(true);
+    try {
+      await collectFlOutput(submissionId, sessionStorage.getItem('access_token') || token);
+    } catch (err) {
+      setCollecting(false);
+      setCollectError(err.message || 'Failed to start output collection');
+    }
+  };
+
+  const ready = output?.status === 'ready';
+
+  return (
+    <div className="fl-section">
+      <div className="fl-section-header">
+        <div className="fl-section-header-text">
+          <h3 className="section-title"><span className="fl-section-icon">&#9670;</span>FL output</h3>
+          <span className="fl-section-sub">The final global model and per-round metrics from this session's server VM</span>
+        </div>
+      </div>
+
+      {error ? (
+        <div className="fl-result-banner fl-result-banner--error" role="alert" style={{ marginTop: 0 }}>
+          &#9888; {error.message}
+        </div>
+      ) : !output ? (
+        <div className="fl-section-sub">Checking for session output&hellip;</div>
+      ) : ready ? (
+        <>
+          <div className="fl-result-banner fl-result-banner--ok" style={{ marginTop: 0 }}>
+            Session complete
+            {outputTeaser(output) && (
+              <div style={{ fontWeight: 400, marginTop: '2px' }}>{outputTeaser(output)}</div>
+            )}
+          </div>
+          <div className="fl-action-row" style={{ marginTop: '12px' }}>
+            <button type="button" className="btn btn-primary" style={{ width: 'auto' }} onClick={() => navigate(`output/${encodeURIComponent(submissionId)}`, { state: { sessionName } })}>
+              View output
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="fl-section-sub">
+            Output not collected yet &mdash; it&rsquo;s pulled from the server VM automatically when training finishes.
+          </div>
+          <div className="fl-action-row" style={{ marginTop: '12px' }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ width: 'auto' }}
+              onClick={handleCollect}
+              disabled={collecting}
+              aria-busy={collecting}
+            >
+              {collecting ? 'Collecting from server VM\u2026' : 'Fetch output'}
+            </button>
+          </div>
+          {collectError && (
+            <div className="fl-result-banner fl-result-banner--error" role="alert">&#9888; {collectError}</div>
+          )}
+        </>
+      )}
+
+    </div>
+  );
+}
+
 export default function FederatedLearning() {
   const { user, token } = useOutletContext();
 
@@ -265,15 +383,6 @@ export default function FederatedLearning() {
   const [contractLoading, setContractLoading] = useState(false);
   const [contractError, setContractError] = useState(null);
 
-  // Final (highest-round) global model produced by the FL server for the session.
-  const [finalModel, setFinalModel] = useState(null);
-  const [finalModelLoading, setFinalModelLoading] = useState(false);
-  // Readable summary of the final model (layers/shapes/params) - shown on "Open".
-  const [modelSummary, setModelSummary] = useState(null);
-  const [summaryOpen, setSummaryOpen] = useState(false);
-  const [summaryLoading, setSummaryLoading] = useState(false);
-  const [summaryError, setSummaryError] = useState(null);
-
   // RAM eligibility: a provider is selectable only when its RAM Usage is <= the
   // output owner's RAM Usage (submitted with the configuration in step 1).
   const ownerRam = Number(formData.ram_usage);
@@ -289,52 +398,6 @@ export default function FederatedLearning() {
   // Fetch the CURRENT data-provider list (enriched with RAM). Reusable so the
   // owner can refresh on demand and entering the selection step always re-pulls;
   // cache:'no-store' defeats any stale browser/HTTP caching of the GET.
-  // Load the latest final global model (newest session's highest round) from the
-  // governance layer, which reads the FL server's checkpoint dir.
-  const loadFinalModel = async (silent = false) => {
-    if (!silent) setFinalModelLoading(true);
-    try {
-      const res = await fetch('/api/v1/final-models', { cache: 'no-store' });
-      const data = await res.json();
-      if (data.status === 'SUCCESS') setFinalModel(data.latest || null);
-    } catch (err) {
-      console.warn('Failed to load final model:', err);
-    } finally {
-      if (!silent) setFinalModelLoading(false);
-    }
-  };
-
-  // "Open Final Model": fetch a readable summary (layers/shapes/params/sample) and
-  // toggle it open. A .pt is opaque binary, so this makes it legible in the UI.
-  const openFinalModel = async () => {
-    if (summaryOpen) { setSummaryOpen(false); return; }
-    setSummaryOpen(true);
-    setSummaryError(null);
-    setSummaryLoading(true);
-    try {
-      const q = finalModel?.session_id ? `?session_id=${encodeURIComponent(finalModel.session_id)}` : '';
-      const res = await fetch(`/api/v1/final-model/summary${q}`, { cache: 'no-store' });
-      const text = await res.text();
-      let data = null;
-      try { data = JSON.parse(text); } catch { /* non-JSON (e.g. a 404 page) */ }
-      if (!data) {
-        setSummaryError(
-          res.status === 404
-            ? 'Model reader not available yet - restart the governance layer to load the /final-model/summary endpoint.'
-            : `Unexpected response (HTTP ${res.status}).`
-        );
-      } else if (data.status === 'SUCCESS') {
-        setModelSummary(data.summary);
-      } else {
-        setSummaryError(data.message || data.error || 'Failed to read model');
-      }
-    } catch (err) {
-      setSummaryError(err.message);
-    } finally {
-      setSummaryLoading(false);
-    }
-  };
-
   const fetchDataProviders = useCallback(async (silent = false) => {
     const freshToken = sessionStorage.getItem('access_token') || token;
     if (!freshToken) return;
@@ -471,16 +534,6 @@ export default function FederatedLearning() {
     return () => clearInterval(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, distributeResult?.ok]);
-
-  // Output owners: load the final model on mount and poll so it appears once the
-  // FL server finishes writing the final round's checkpoint - no manual refresh.
-  useEffect(() => {
-    if (!token || !isOutputOwner) return;
-    loadFinalModel(true);
-    const h = setInterval(() => loadFinalModel(true), 15000);
-    return () => clearInterval(h);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, isOutputOwner]);
 
   // Drop any selected providers that stop meeting the RAM rule (e.g. after the
   // owner edits their RAM Usage back on the configuration step).
@@ -897,121 +950,15 @@ export default function FederatedLearning() {
           </div>
         )}
 
-        {/* Final model - the aggregated global model from the last training round. */}
-        {isOutputOwner && (
-          <div className="fl-section">
-            <div className="fl-section-header">
-              <div className="fl-section-header-text">
-                <h3 className="section-title"><span className="fl-section-icon">&#9670;</span>Final Model</h3>
-                <span className="fl-section-sub">The aggregated global model from this session's last training round</span>
-              </div>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                style={{ width: 'auto', padding: '6px 14px', fontSize: '0.85rem' }}
-                onClick={() => loadFinalModel(false)}
-                disabled={finalModelLoading}
-              >
-                {finalModelLoading ? 'Refreshing...' : 'Refresh'}
-              </button>
-            </div>
-            {!finalModel ? (
-              <div className="fl-empty">
-                {finalModelLoading ? 'Loading...' : "No trained model yet - it appears here once the FL session finishes its final round."}
-              </div>
-            ) : (
-              <div className="card" style={{ padding: '16px' }}>
-                <div className="fl-model-meta">
-                  <div className="fl-model-meta-item">
-                    <div className="fl-model-meta-item__label">Session</div>
-                    <div className="fl-model-meta-item__value"><code>{finalModel.session_id}</code></div>
-                  </div>
-                  <div className="fl-model-meta-item">
-                    <div className="fl-model-meta-item__label">Final Round</div>
-                    <div className="fl-model-meta-item__value">{finalModel.round}</div>
-                  </div>
-                  <div className="fl-model-meta-item">
-                    <div className="fl-model-meta-item__label">Size</div>
-                    <div className="fl-model-meta-item__value">{(finalModel.size_bytes / 1024).toFixed(1)} KB</div>
-                  </div>
-                  <div className="fl-model-meta-item">
-                    <div className="fl-model-meta-item__label">File</div>
-                    <div className="fl-model-meta-item__value"><code>{finalModel.file}</code></div>
-                  </div>
-                  <div className="fl-model-meta-item">
-                    <div className="fl-model-meta-item__label">Updated</div>
-                    <div className="fl-model-meta-item__value">{new Date(finalModel.modified_at).toLocaleString()}</div>
-                  </div>
-                </div>
-                <div className="fl-action-row" style={{ marginTop: '14px' }}>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    style={{ width: 'auto' }}
-                    onClick={openFinalModel}
-                    disabled={summaryLoading}
-                  >
-                    {summaryLoading ? 'Reading...' : summaryOpen ? 'Hide Final Model' : 'Open Final Model'}
-                  </button>
-                  <a
-                    className="btn btn-secondary"
-                    style={{ width: 'auto', textDecoration: 'none' }}
-                    href={`/api/v1/final-model/download?session_id=${encodeURIComponent(finalModel.session_id)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Download .pt
-                  </a>
-                </div>
-
-                {summaryOpen && (
-                  <div style={{ marginTop: '14px' }}>
-                    {summaryError ? (
-                      <div className="fl-result-banner fl-result-banner--error">&#9888; {summaryError}</div>
-                    ) : summaryLoading ? (
-                      <div className="fl-section-sub">Reading model...</div>
-                    ) : modelSummary ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        <div style={{ fontSize: '0.85rem', color: 'var(--text-dark)' }}>
-                          <strong>{modelSummary.format}</strong>
-                          {' - '}{modelSummary.num_tensors} tensors,{' '}
-                          <strong>{Number(modelSummary.total_params || 0).toLocaleString()}</strong> parameters
-                        </div>
-                        <div className="cat-table-wrap">
-                          <table className="cat-table">
-                            <thead>
-                              <tr>
-                                <th>Layer</th>
-                                <th>dtype</th>
-                                <th>shape</th>
-                                <th style={{ textAlign: 'right' }}>params</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {(modelSummary.layers || []).map((l, i) => (
-                                <tr key={i}>
-                                  <td style={{ fontFamily: 'monospace' }}>{l.name}</td>
-                                  <td>{l.dtype}</td>
-                                  <td style={{ fontFamily: 'monospace' }}>[{(l.shape || []).join(', ')}]</td>
-                                  <td style={{ textAlign: 'right' }}>{Number(l.params || 0).toLocaleString()}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                        {modelSummary.sample && (
-                          <div style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>
-                            <strong>Sample weights</strong> ({modelSummary.sample.layer}, {modelSummary.sample.dtype}):{' '}
-                            <code>[{(modelSummary.sample.values || []).join(', ')}]</code>
-                          </div>
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+        {/* FL output - final global model + per-round metrics, pulled from the
+            server VM when training finishes. "View output" opens its own page. */}
+        {isOutputOwner && reportSubmissionId && (
+          <FlOutputSection
+            key={reportSubmissionId}
+            submissionId={reportSubmissionId}
+            token={token}
+            sessionName={formData.model || undefined}
+          />
         )}
 
         {/* Data Provider View */}
