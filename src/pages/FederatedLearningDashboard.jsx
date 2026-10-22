@@ -65,7 +65,7 @@ export default function FederatedLearningDashboard() {
 
   const roles = useMemo(() => user?.roles || [], [user]);
   const hasDataProvider = roles.includes("data-provider");
-  // No separate "output-owner" role to request/approve â€” any logged-in user
+  // No separate "output-owner" role to request/approve — any logged-in user
   // who isn't a data-provider gets the full owner workflow.
   const hasOutputOwner = !hasDataProvider;
   const canSeeOutputOwnerForm = hasOutputOwner;
@@ -279,8 +279,14 @@ export default function FederatedLearningDashboard() {
 
   // Answer a participation request: "accepted" or "declined", with an optional
   // reason that goes back to the output owner.
-  const handleRespond = async (notificationId, response) => {
+  // finalWarning: the provider already declined once for this session, so
+  // declining again removes them from it — confirm first.
+  const handleRespond = async (notificationId, response, finalWarning = false) => {
     if (!token) return;
+    if (response === "declined" && finalWarning &&
+        !window.confirm("You already declined once for this session. If you decline again, you will be removed from this session. Decline anyway?")) {
+      return;
+    }
     const message = (responseDrafts[notificationId] || "").trim();
     setRespondingId(notificationId);
     try {
@@ -346,6 +352,24 @@ export default function FederatedLearningDashboard() {
   // popup only fires on a live push while on this page, so a provider who was
   // elsewhere or reloaded would otherwise have no way to join.
   const visibleNotifications = notifications.filter(n => !dismissedIds.has(n.id));
+  // Per session, only the newest willing/not-willing ask (a request or an
+  // updated list) can be answered; older ones are shown as replaced so the
+  // provider isn't left guessing which one to answer.
+  const latestAskBySession = useMemo(() => {
+    const latest = {};
+    notifications.forEach(n => {
+      const p = typeof n.payload === "string"
+        ? (() => { try { return JSON.parse(n.payload || "{}"); } catch { return {}; } })()
+        : (n.payload || {});
+      if (p.kind !== "participation_request" && p.kind !== "participation_update") return;
+      const key = p.submission_id || "";
+      const prev = latest[key];
+      if (!prev || new Date(n.created_at) > new Date(prev.created_at)) latest[key] = n;
+    });
+    const ids = {};
+    Object.entries(latest).forEach(([k, n]) => { ids[k] = n.id; });
+    return ids;
+  }, [notifications]);
   const visibleSentNotifications = sentNotifications.filter(n => !dismissedIds.has(n.id));
 
   return (
@@ -570,7 +594,7 @@ export default function FederatedLearningDashboard() {
                 alignItems: "center",
                 gap: "4px"
               }}>
-                {wsConnected ? "â— Live" : "â—‹ Offline"}
+                {wsConnected ? "● Live" : "○ Offline"}
               </span>
               <button
                 className="btn btn-secondary"
@@ -616,6 +640,16 @@ export default function FederatedLearningDashboard() {
                     const isRequest = payload.kind === "participation_request";
                     const isRoster = payload.kind === "participation_roster";
                     const isSessionStart = payload.kind === "fl_session_start";
+                    // Participation negotiation (gov_layer fl_negotiation.go):
+                    // a 2nd+ request carries final_warning; declining it removes
+                    // the provider, who then gets removed_from_session while the
+                    // rest get participation_update with the updated list.
+                    const isUpdate = payload.kind === "participation_update";
+                    const isRemovedNotice = payload.kind === "removed_from_session";
+                    const finalWarning = (isRequest || isUpdate) && !!payload.final_warning;
+                    // Both a request and an updated-list notice ask willing / not willing.
+                    const isAnswerable = isRequest || isUpdate;
+                    const superseded = isAnswerable && latestAskBySession[payload.submission_id || ""] !== notification.id;
                     const selectedList = Array.isArray(payload.selected_providers) ? payload.selected_providers : [];
                     const requestedList = Array.isArray(payload.requested_providers) ? payload.requested_providers : [];
                     const willingList = Array.isArray(payload.willing_providers) ? payload.willing_providers : [];
@@ -658,7 +692,7 @@ export default function FederatedLearningDashboard() {
                           </div>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          {!isRequest && !notification.read && (
+                          {!isAnswerable && !notification.read && (
                             <button
                               onClick={() => handleMarkRead(notification.id)}
                               style={{
@@ -670,7 +704,7 @@ export default function FederatedLearningDashboard() {
                               Mark Read
                             </button>
                           )}
-                          {!isRequest && notification.read && (
+                          {!isAnswerable && notification.read && (
                             <span style={{ fontSize: "0.75rem", color: "#888", whiteSpace: "nowrap" }}>Read</span>
                           )}
                           <button
@@ -689,7 +723,26 @@ export default function FederatedLearningDashboard() {
                         </div>
                       </div>
 
-                      {isRequest && (requestedList.length > 0 || selectedList.length > 0) && (() => {
+                      {isUpdate && payload.removed_provider && (
+                        <div style={{
+                          fontSize: "0.8rem", padding: "6px 10px", borderRadius: "6px",
+                          background: "rgba(239, 68, 68, 0.08)", color: "#991b1b",
+                          border: "1px solid rgba(239, 68, 68, 0.3)",
+                        }}>
+                          <strong>{payload.removed_provider}</strong> declined a second time and was removed from this session. The list below is the updated one.
+                        </div>
+                      )}
+
+                      {isRemovedNotice && (
+                        <div style={{
+                          fontSize: "0.85rem", fontWeight: 500, padding: "8px 12px", borderRadius: "6px",
+                          background: "#991b1b", color: "white",
+                        }}>
+                          You have been removed from this session. You won't receive further requests for it.
+                        </div>
+                      )}
+
+                      {(isRequest || isUpdate) && (requestedList.length > 0 || selectedList.length > 0) && (() => {
                         const willingKeys = new Set(willingList.map(p => p.username || p.id));
                         return (
                         <div style={{ fontSize: "0.8rem", color: "var(--text-light, #555)", display: "flex", flexDirection: "column", gap: "4px" }}>
@@ -758,7 +811,7 @@ export default function FederatedLearningDashboard() {
                           gap: "6px",
                         }}>
                           <div style={{ fontWeight: 600, color: "var(--primary-color, #6c63ff)", fontSize: "0.85rem" }}>
-                            ðŸ“œ Federated Learning Contract
+                            📜 Federated Learning Contract
                           </div>
                           <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 10px" }}>
                             <span style={{ color: "#888" }}>Session</span><span><code>{sessionInfo.session_id}</code></span>
@@ -784,8 +837,23 @@ export default function FederatedLearningDashboard() {
                         </div>
                       )}
 
-                      {isRequest && !responded && (
+                      {isAnswerable && !responded && superseded && (
+                        <div style={{ fontSize: "0.85rem", color: "#888", fontStyle: "italic" }}>
+                          Replaced by a newer message for this session - answer the latest one.
+                        </div>
+                      )}
+
+                      {isAnswerable && !responded && !superseded && (
                         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                          {finalWarning && (
+                            <div style={{
+                              fontSize: "0.85rem", fontWeight: 500, padding: "8px 12px", borderRadius: "6px",
+                              background: "rgba(231, 76, 60, 0.1)", color: "#991b1b",
+                              border: "1px solid rgba(231, 76, 60, 0.4)",
+                            }}>
+                              You declined an earlier request: if you decline again, you will be removed from the session.
+                            </div>
+                          )}
                           <textarea
                             placeholder="Optional: a note for the output owner (e.g. why you can't participate)"
                             value={responseDrafts[notification.id] || ""}
@@ -808,10 +876,10 @@ export default function FederatedLearningDashboard() {
                                 cursor: respondingId === notification.id ? "default" : "pointer",
                               }}
                             >
-                              {respondingId === notification.id ? "Sendingâ€¦" : "Yes, I'm willing"}
+                              {respondingId === notification.id ? "Sending…" : "Yes, I'm willing"}
                             </button>
                             <button
-                              onClick={() => handleRespond(notification.id, "declined")}
+                              onClick={() => handleRespond(notification.id, "declined", finalWarning)}
                               disabled={respondingId === notification.id}
                               style={{
                                 padding: "6px 14px", fontSize: "0.8rem",
@@ -843,12 +911,12 @@ export default function FederatedLearningDashboard() {
                         </div>
                       )}
 
-                      {isRequest && responded && (
+                      {isAnswerable && responded && (
                         <div style={{
                           fontSize: "0.85rem", fontWeight: 500,
                           color: notification.response === "accepted" ? "var(--success-color, #27ae60)" : "#e74c3c",
                         }}>
-                          {notification.response === "accepted" ? "âœ… You accepted this request." : "âŒ You declined this request."}
+                          {notification.response === "accepted" ? "✅ You accepted this request." : "❌ You declined this request."}
                           {notification.response_message && (
                             <div style={{ fontWeight: 400, color: "var(--text-light, #555)", marginTop: "2px" }}>
                               Your note: {notification.response_message}

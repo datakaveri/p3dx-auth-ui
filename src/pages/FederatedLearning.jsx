@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { BACKEND_URL } from '../config';
-import { notifyProviders, getNotificationResponses, notifyRoster, getSessionContract, getMyNotifications, queueFlSession, getSessionContractSignatures } from '../api/auth';
+import { notifyProviders, getNotificationResponses, notifyRoster, getSessionContract, getMyNotifications, queueFlSession, getSessionContractSignatures, getRemovedProviders } from '../api/auth';
 import ContractSignatureStatus from '../components/ContractSignatureStatus';
 
 const GOVERNANCE_LAYER_URL = `${BACKEND_URL}/p3dx/form-submissions`;
@@ -62,7 +62,12 @@ async function submitDataProviderFormToBackend(payload, token) {
 // Derive the pending/willing/declined status for a notified provider from
 // their latest participation response. Shared by the "Selected Data-Providers"
 // panel and the provider checklist so both render identical badges.
-function providerStatus(providerResponse) {
+// A provider removed from the session (declined to participate a second
+// time) shows as Removed regardless of their last response.
+function providerStatus(providerResponse, removed) {
+  if (removed) {
+    return { key: 'removed', label: 'Removed' };
+  }
   if (providerResponse?.response === 'accepted') {
     return { key: 'willing', label: 'Willing' };
   }
@@ -224,6 +229,10 @@ export default function FederatedLearning() {
   // this owner's previously-sent notifications so the selection list shows
   // live willing/not-willing status next to each provider.
   const [providerResponses, setProviderResponses] = useState({});
+  // Providers removed from this session for declining to participate a
+  // second time, keyed by username -> { reason, removed_at }. They can't be
+  // selected, messaged again or put on the Final Roster.
+  const [removedProviders, setRemovedProviders] = useState({});
   // Providers who've completed their Azure sign-in for the started FL
   // session, keyed by username -> ISO timestamp first seen. Read back from
   // this owner's own notification inbox (each provider posts one on sign-in).
@@ -270,6 +279,7 @@ export default function FederatedLearning() {
   const ownerRam = Number(formData.ram_usage);
   const ownerRamValid = formData.ram_usage !== '' && formData.ram_usage != null && Number.isFinite(ownerRam);
   const providerEligible = (p) => {
+    if (removedProviders[p?.username]) return false;
     const v = p?.ram_usage;
     if (!ownerRamValid || v === null || v === undefined || v === '') return false;
     const n = Number(v);
@@ -365,7 +375,9 @@ export default function FederatedLearning() {
           // "final_roster" is a one-way done-deal announcement (never has a
           // response) - including it here would let it override a genuine
           // accepted answer and flip the badge back to pending.
-          if (payload.kind && payload.kind !== 'participation_request') return false;
+          // participation_update (the updated list sent after a removal) is
+          // answerable too, so it counts as the provider's latest invite.
+          if (payload.kind && payload.kind !== 'participation_request' && payload.kind !== 'participation_update') return false;
           return !reportSubmissionId || payload.submission_id === reportSubmissionId;
         })
         .forEach(n => {
@@ -380,6 +392,12 @@ export default function FederatedLearning() {
           }
         });
       setProviderResponses(map);
+      if (reportSubmissionId) {
+        const removed = await getRemovedProviders(reportSubmissionId, freshToken);
+        const byName = {};
+        removed.forEach(r => { byName[r.username] = r; });
+        setRemovedProviders(byName);
+      }
     } catch (err) {
       console.warn('[DEBUG] Failed to load provider responses:', err);
     }
@@ -469,7 +487,7 @@ export default function FederatedLearning() {
   useEffect(() => {
     setSelectedProviders(prev => prev.filter(providerEligible));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.ram_usage]);
+  }, [formData.ram_usage, removedProviders]);
 
   function toggleProvider(provider) {
     setSelectedProviders(prev => {
@@ -637,7 +655,7 @@ export default function FederatedLearning() {
   // participant list - only those who responded "willing" so far - to those
   // same willing providers. A done-deal notice, not another accept/decline ask.
   const handleSendFinalRoster = async () => {
-    const willing = notifiedProviders.filter(p => providerResponses[p.username]?.response === 'accepted');
+    const willing = notifiedProviders.filter(p => !removedProviders[p.username] && providerResponses[p.username]?.response === 'accepted');
     if (willing.length === 0) {
       setMsg({ type: 'error', text: 'No data provider has confirmed willing yet - nothing to send.' });
       return;
@@ -646,7 +664,9 @@ export default function FederatedLearning() {
     setSendingRoster(true);
     try {
       const willingPayload = willing.map(p => ({ id: p.id, username: p.username, email: p.email }));
-      const selectedPayload = notifiedProviders.map(p => ({ id: p.id, username: p.username, email: p.email }));
+      const selectedPayload = notifiedProviders
+        .filter(p => !removedProviders[p.username])
+        .map(p => ({ id: p.id, username: p.username, email: p.email }));
       const res = await notifyRoster(selectedPayload, willingPayload, formData.output_owner_id, reportSubmissionId, freshToken);
       setFinalRosterSent(true);
       setFinalRoster(willingPayload);
@@ -1140,7 +1160,7 @@ export default function FederatedLearning() {
                   className="btn btn-primary"
                   style={{ width: 'auto', padding: '6px 14px', fontSize: '0.85rem' }}
                   onClick={handleSendFinalRoster}
-                  disabled={sendingRoster || notifiedProviders.every(p => providerResponses[p.username]?.response !== 'accepted')}
+                  disabled={sendingRoster || notifiedProviders.every(p => removedProviders[p.username] || providerResponses[p.username]?.response !== 'accepted')}
                   title="Send a final message to every provider who has confirmed willing, listing who's participating"
                 >
                   {sendingRoster ? 'Sending...' : 'Final Roster'}
@@ -1236,7 +1256,8 @@ export default function FederatedLearning() {
               <div className="fl-provider-list">
                 {notifiedProviders.map(provider => {
                   const providerResponse = providerResponses[provider.username];
-                  const status = providerStatus(providerResponse);
+                  const removal = removedProviders[provider.username];
+                  const status = providerStatus(providerResponse, removal);
                   return (
                     <div key={provider.id} className={`fl-provider-card fl-provider-card--${status.key}`}>
                       <div className="fl-provider-identity">
@@ -1246,6 +1267,12 @@ export default function FederatedLearning() {
                           <div className="fl-provider-email">{provider.email}</div>
                           {status.key === 'declined' && providerResponse?.message && (
                             <div className="fl-decline-reason"><strong>Reason:</strong> {providerResponse.message}</div>
+                          )}
+                          {status.key === 'removed' && (
+                            <div className="fl-decline-reason">
+                              Declined a second time - removed from this session.
+                              {removal.reason && <> <strong>Reason:</strong> {removal.reason}</>}
+                            </div>
                           )}
                         </div>
                       </div>
@@ -1312,12 +1339,13 @@ export default function FederatedLearning() {
                     const eligible = providerEligible(provider);
                     const hasRam = provider.ram_usage !== null && provider.ram_usage !== undefined && provider.ram_usage !== '';
                     const providerResponse = providerResponses[provider.username];
+                    const removal = removedProviders[provider.username];
                     const cardModifier = !eligible ? 'ineligible' : isSelected ? 'selected' : 'eligible';
                     return (
                       <div
                         key={provider.id}
                         onClick={() => { if (eligible) toggleProvider(provider); }}
-                        title={eligible ? '' : (ownerRamValid
+                        title={eligible ? '' : removal ? 'Removed from this session (declined to participate a second time)' : (ownerRamValid
                           ? `RAM Usage ${hasRam ? Number(provider.ram_usage) + ' MB' : 'not provided'} exceeds your ${ownerRam} MB`
                           : 'Set your RAM Usage in the configuration to compare')}
                         className={`fl-provider-card fl-provider-card--clickable fl-provider-card--${cardModifier}`}
@@ -1337,11 +1365,11 @@ export default function FederatedLearning() {
                           {isSelected && eligible && (
                             <span className="fl-check">&#10003;</span>
                           )}
-                          {providerResponse && (() => {
-                            const status = providerStatus(providerResponse);
+                          {(providerResponse || removal) && (() => {
+                            const status = providerStatus(providerResponse, removal);
                             return (
                               <span
-                                title={status.key === 'declined' && providerResponse.message ? `Reason: ${providerResponse.message}` : ''}
+                                title={status.key === 'declined' && providerResponse?.message ? `Reason: ${providerResponse.message}` : status.key === 'removed' && removal?.reason ? `Reason: ${removal.reason}` : ''}
                                 className={`fl-status-badge fl-status-badge--${status.key}`}
                               >
                                 <span className="fl-status-dot" />{status.label}

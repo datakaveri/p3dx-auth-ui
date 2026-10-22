@@ -152,6 +152,19 @@ export async function respondToNotification(notificationId, response, message, t
   return data;
 }
 
+// Output owner: data providers removed from an FL session for declining to
+// participate a second time ([{ username, reason, removed_at }]).
+export async function getRemovedProviders(submissionId, token) {
+  const res = await authFetch(`${BACKEND_URL}/p3dx/sessions/${encodeURIComponent(submissionId)}/removed-providers`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to load removed providers");
+  }
+  return data?.removed_providers || [];
+}
+
 // Output owner: send the final participant roster (who's willing + who was
 // selected) to the selected providers, after the consent round.
 export async function notifyRoster(selectedProviders, willingProviders, outputOwnerId, submissionId, token) {
