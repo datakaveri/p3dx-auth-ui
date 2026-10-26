@@ -162,6 +162,19 @@ export default function ContractPreviewModal({ open, contract, onClose, onEdit, 
             </div>
           </section>
 
+          {/* FL training parameters, signed as part of the contract */}
+          {contract.fl_config && (
+            <section className="cpm-section">
+              <div className="cpm-section__title"><Cpu size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Training</div>
+              <div className="grid">
+                <Field label="Rounds" value={contract.fl_config.num_rounds} />
+                <Field label="Local Epochs" value={contract.fl_config.local_epochs} />
+                <Field label="Learning Rate" value={contract.fl_config.learning_rate} mono />
+                <Field label="Batch Size" value={contract.fl_config.batch_size} />
+              </div>
+            </section>
+          )}
+
           {/* Parties */}
           <section className="cpm-section">
             <div className="cpm-section__title"><Users size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Parties</div>

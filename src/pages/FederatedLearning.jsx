@@ -1447,7 +1447,7 @@ export default function FederatedLearning() {
                 <div className="fl-form-grid">
                   <div className="form-group">
                     <label>Number of Server Rounds</label>
-                    <input className="input" type="number" value={formData.num_server_rounds} onChange={(e) => setFormData({...formData, num_server_rounds: e.target.value})} />
+                    <input className="input" type="number" required min="1" max="100" step="1" value={formData.num_server_rounds} onChange={(e) => setFormData({...formData, num_server_rounds: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>Fraction Evaluate</label>
@@ -1455,15 +1455,15 @@ export default function FederatedLearning() {
                   </div>
                   <div className="form-group">
                     <label>Local Epochs</label>
-                    <input className="input" type="number" value={formData.local_epochs} onChange={(e) => setFormData({...formData, local_epochs: e.target.value})} />
+                    <input className="input" type="number" required min="1" max="5" step="1" value={formData.local_epochs} onChange={(e) => setFormData({...formData, local_epochs: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>Learning Rate</label>
-                    <input className="input" type="number" step="0.001" value={formData.learning_rate} onChange={(e) => setFormData({...formData, learning_rate: e.target.value})} />
+                    <input className="input" type="number" required min="0.000001" max="1" step="any" value={formData.learning_rate} onChange={(e) => setFormData({...formData, learning_rate: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>Batch Size</label>
-                    <input className="input" type="number" value={formData.batch_size} onChange={(e) => setFormData({...formData, batch_size: e.target.value})} />
+                    <input className="input" type="number" required min="1" max="1024" step="1" value={formData.batch_size} onChange={(e) => setFormData({...formData, batch_size: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>RAM Usage (MB)</label>

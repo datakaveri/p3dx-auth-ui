@@ -125,6 +125,13 @@ export default function DpdpConsentNotice({ contract, requestedBy, acknowledged,
           {workload?.image ? (
             <li><strong>Program that will run:</strong> <span className="cpm-field__value--mono">{workload.image}</span></li>
           ) : null}
+          {contract.fl_config ? (
+            <li>
+              <strong>Training settings:</strong> {contract.fl_config.num_rounds} rounds, {contract.fl_config.local_epochs} local
+              {contract.fl_config.local_epochs === 1 ? " pass" : " passes"} over your data per round, learning rate{" "}
+              {contract.fl_config.learning_rate}, batch size {contract.fl_config.batch_size}
+            </li>
+          ) : null}
           <li>Your data will be used only for this purpose and only under this contract.</li>
         </ul>
       </Section>
