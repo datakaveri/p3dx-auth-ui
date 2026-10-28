@@ -1,10 +1,9 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { DataOwnerForm, DP_VM_NAME_KEY } from "../components/RoleForms";
-import { getMyNotifications, getNotificationResponses, markNotificationRead, respondToNotification, notifyAzureSignIn } from "../api/auth";
+import { getMyNotifications, getNotificationResponses, markNotificationRead, respondToNotification, notifyAzureSignIn, subscribeToNotifications } from "../api/auth";
 import { signInProviderWithAzure, completeProviderAzureSignIn } from "../api/azureAuth";
 import FLSessionStartModal from "../components/FLSessionStartModal";
-import { BACKEND_URL } from "../config";
 
 function parseNotificationPayload(n) {
   try {
@@ -64,7 +63,7 @@ export default function FederatedLearningDashboard() {
   };
 
   const roles = useMemo(() => user?.roles || [], [user]);
-  const hasDataProvider = roles.includes("data-provider");
+  const hasDataProvider = roles.includes("provider");
   // No separate "output-owner" role to request/approve — any logged-in user
   // who isn't a data-provider gets the full owner workflow.
   const hasOutputOwner = !hasDataProvider;
@@ -310,39 +309,27 @@ export default function FederatedLearningDashboard() {
   // Real-time notifications via Server-Sent Events. The server sends a
   // {type:'notification'} nudge when a notification is created for this user;
   // we then refetch the canonical list, so the dashboard updates with no manual
-  // refresh. EventSource reconnects automatically after transient drops.
+  // refresh. subscribeToNotifications reconnects after transient drops.
   useEffect(() => {
     if (!hasDataProvider || !user?.username) return;
 
-    const url = `${BACKEND_URL}/p3dx/notifications/stream?username=${encodeURIComponent(user.username)}`;
-    const es = new EventSource(url);
+    const close = subscribeToNotifications({
+      onOpen: () => setWsConnected(true),
+      onNotification: () => {
+        fetchNotifications(true);
+        setShowNotifications(true);
+      },
+      // It retries on its own; just reflect the transient state.
+      onError: () => setWsConnected(false),
+    });
 
-    es.onopen = () => setWsConnected(true);
-
-    es.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        if (message.type === 'notification') {
-          fetchNotifications(true);
-          setShowNotifications(true);
-        }
-      } catch (err) {
-        console.error('[SSE] Error parsing message:', err);
-      }
-    };
-
-    es.onerror = () => {
-      // EventSource retries on its own; just reflect the transient state.
-      setWsConnected(false);
-    };
-
-    wsRef.current = es;
+    wsRef.current = close;
 
     // Initial load of existing notifications.
     fetchNotifications();
 
     return () => {
-      es.close();
+      close();
       wsRef.current = null;
     };
   }, [token, hasDataProvider, user?.username]);

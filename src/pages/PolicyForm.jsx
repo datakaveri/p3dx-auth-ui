@@ -74,7 +74,7 @@ function IconUser() {
 export default function PolicyForm() {
   const { user, isAdmin, token } = useOutletContext();
   const roles = useMemo(() => user?.roles || [], [user]);
-  const hasDataProvider = roles.includes("data-provider");
+  const hasDataProvider = roles.includes("provider");
 
   const navigate = useNavigate();
   const location = useLocation();

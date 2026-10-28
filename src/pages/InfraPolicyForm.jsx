@@ -135,15 +135,15 @@ function deriveExecutionEnvironment(entries) {
 }
 
 // Infrastructure Policy — the SMPC-only counterpart to the dataset access
-// policy in PolicyForm.jsx. It rides the exact same generic POST /p3dx/policy
-// -> APD /api/v1/policy pipeline (no backend schema change): everything
+// policy in PolicyForm.jsx. It rides the exact same generic APD
+// POST /api/v1/me/policies route (no backend schema change): everything
 // technique-specific lives inside rules, keyed by rules.policy_type so the
 // backend can tell an infra policy apart from a dataset-access policy and
 // gate each on the right role (see p3dx.routes.js POST /policy).
 export default function InfraPolicyForm() {
   const { user, isAdmin, token } = useOutletContext();
   const roles = useMemo(() => user?.roles || [], [user]);
-  const hasInfraProvider = roles.includes("infra-provider");
+  const hasInfraProvider = roles.includes("infra_provider");
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -499,11 +499,10 @@ export default function InfraPolicyForm() {
         },
         // This policy type only ever covers SMPC — not user-editable.
         allowed_techniques: ["SMPC"],
-        // Real Keycloak role names (not the workflow doc's "consumer" —
-        // that's just the plain "user" role on this platform). Not enforced
-        // anywhere yet; becomes meaningful once the infra catalogue (InfraCat)
-        // exists to actually read it.
-        allowed_roles: ["user", "application-provider"],
+        // Real Keycloak (DX) role names. Not enforced anywhere yet; becomes
+        // meaningful once the infra catalogue (InfraCat) exists to actually
+        // read it.
+        allowed_roles: ["consumer", "application_provider"],
         allowed_actions: ["provision", "execute", "terminate"],
         allow_remote_provisioning: form.allowRemoteProvisioning,
         allow_ephemeral_execution: form.allowEphemeralExecution,

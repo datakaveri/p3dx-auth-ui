@@ -1,24 +1,4 @@
-import { BACKEND_URL } from "../config";
-
-// Calls /refresh-token directly (rather than importing auth.js's
-// refreshAccessToken) so this module and auth.js don't import each other.
-async function requestRefresh(refreshToken) {
-  const res = await fetch(`${BACKEND_URL}/p3dx/refresh-token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_token: refreshToken }),
-  });
-  let data = null;
-  try {
-    data = await res.json();
-  } catch {
-    // non-JSON body
-  }
-  if (!res.ok || data?.status === "FAILED") {
-    throw new Error(data?.error || `Refresh failed (${res.status})`);
-  }
-  return data;
-}
+import { refreshTokens, storeTokens } from "./oidc";
 
 // Keeps the Keycloak session alive for every API call. Pages capture the
 // access token once (via AppShell's outlet context) and keep using it, so a
@@ -53,7 +33,7 @@ let inflight = null;
 let lastRefreshAt = 0;
 const RECENT_REFRESH_MS = 30_000;
 
-// Single-flight refresh: concurrent callers share one /refresh-token request
+// Single-flight refresh: concurrent callers share one Keycloak token request
 // (Keycloak rotates refresh tokens, so parallel refreshes would race).
 // Resolves to the new access token, or null when the session is really over.
 export function refreshSession() {
@@ -63,11 +43,8 @@ export function refreshSession() {
     const refreshToken = sessionStorage.getItem("refresh_token");
     if (!refreshToken) return null;
     try {
-      const res = await requestRefresh(refreshToken);
-      if (!res?.access_token) return null;
-      sessionStorage.setItem("access_token", res.access_token);
-      if (res.refresh_token) sessionStorage.setItem("refresh_token", res.refresh_token);
-      if (res.expires_in) sessionStorage.setItem("expires_in", String(res.expires_in));
+      const res = await refreshTokens(refreshToken);
+      storeTokens(res);
       lastRefreshAt = Date.now();
       window.dispatchEvent(new CustomEvent(TOKEN_REFRESHED_EVENT, { detail: res.access_token }));
       return res.access_token;

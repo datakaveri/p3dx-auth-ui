@@ -1,24 +1,14 @@
 import React, { useState } from 'react';
-import { BACKEND_URL } from '../config';
-
-const DATA_PROVIDER_FORM_URL = `${BACKEND_URL}/p3dx/data-provider-forms`;
+import { submitDataProviderForm } from '../api/apd';
 
 // Read by FederatedLearningDashboard's startVmProvisioning once this
 // provider signs in with Azure - the form and the sign-in trigger live in
 // separate components on the same page, so sessionStorage is the bridge.
 export const DP_VM_NAME_KEY = 'p3dx_flo_dp_vm_name';
 
-// Data Provider form submits to governance layer
-async function submitDataOwnerFormToBackend(payload, token) {
-  const res = await fetch(DATA_PROVIDER_FORM_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    },
-    body: JSON.stringify({ payload })
-  });
-  return res.json();
+// Data Provider form submits to APD (the store of record for FL forms)
+function submitDataOwnerFormToBackend(payload, token) {
+  return submitDataProviderForm(payload, token);
 }
 
 export function DataOwnerForm({ user, token }) {

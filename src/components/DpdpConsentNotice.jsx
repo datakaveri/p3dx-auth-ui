@@ -16,9 +16,25 @@ const GRIEVANCE_EMAIL = import.meta.env.VITE_DPDP_GRIEVANCE_EMAIL || "";
 // contract-supplied purpose (contract.purpose) takes precedence.
 const TECHNIQUE_USES = {
   FL: "Federated learning: a machine-learning model is trained on your dataset where it is hosted. Only model updates are shared with the aggregator; your raw records are not copied to the requester.",
-  TEE: "Confidential computing: the workload below runs on your dataset inside a hardware-attested Trusted Execution Environment, which keeps the data encrypted and isolated from the infrastructure operator.",
+  TEE: "Confidential computing: a hardware-attested, encrypted enclave is verified first; only the program below runs on your dataset inside it, and only its result comes out. The raw data stays sealed, even from the operator.",
   SMPC: "Secure multi-party computation: your data is split into secret shares and computed on jointly with other providers, so no single party sees your raw records.",
 };
+
+// Purpose shown when the requester didn't state one: what the contract
+// itself commits to, for this requester and these datasets.
+function defaultPurpose(technique, consumer, datasetNames) {
+  const data = datasetNames.length ? datasetNames.join(", ") : "your dataset";
+  switch (technique) {
+    case "TEE":
+      return `To run the program listed below on ${data} inside a secure enclave for ${consumer}, who receives only the program's result.`;
+    case "FL":
+      return `To train a shared machine-learning model for ${consumer} using ${data}, without your records leaving where they are hosted.`;
+    case "SMPC":
+      return `To compute a joint result for ${consumer} from ${data} together with other providers' data, without revealing your records.`;
+    default:
+      return `To process ${data} for ${consumer} as set out in this contract.`;
+  }
+}
 
 function formatDate(iso) {
   if (!iso || iso.startsWith("0001-01-01")) return null;
@@ -59,7 +75,8 @@ export default function DpdpConsentNotice({ contract, requestedBy, acknowledged,
   const infraProviders = isTEE ? [] : parties.infra_providers || [];
   const validFrom = formatDate(lifecycle.valid_from);
   const validUntil = formatDate(lifecycle.valid_until);
-  const purpose = contract.purpose || contract.purpose_description;
+  const purpose = contract.purpose || contract.purpose_description
+    || defaultPurpose(contract.technique, consumer, datasets.map(dp => dp.dataset_name || dp.dataset_id).filter(Boolean));
 
   return (
     <div className="dpdp-notice">
@@ -119,7 +136,7 @@ export default function DpdpConsentNotice({ contract, requestedBy, acknowledged,
         <ul className="dpdp-list">
           <li>
             <strong>Purpose:</strong>{" "}
-            {purpose || <Missing>The requester has not stated a specific purpose in this contract.</Missing>}
+            {purpose}
           </li>
           <li><strong>How your data is used:</strong> {TECHNIQUE_USES[contract.technique] || `Processing by technique ${technique}.`}</li>
           {workload?.image ? (

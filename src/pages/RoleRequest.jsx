@@ -10,9 +10,9 @@ import KeyPairCard from "../components/KeyPairCard";
 // page. Every role goes through admin approval; once approved, the relevant
 // service page picks up the granted role automatically.
 const ROLE_OPTIONS = [
-  { value: "application-provider", label: "Application Provider — SMPC / TEE / Differential Privacy" },
-  { value: "data-provider", label: "Data Provider — Federated Learning / SMPC / TEE / Differential Privacy" },
-  { value: "infra-provider", label: "Infrastructure Provider — SMPC" },
+  { value: "application_provider", label: "Application Provider — SMPC / TEE / Differential Privacy" },
+  { value: "provider", label: "Data Provider — Federated Learning / SMPC / TEE / Differential Privacy" },
+  { value: "infra_provider", label: "Infrastructure Provider — SMPC" },
 ];
 
 export default function RoleRequest() {
@@ -36,7 +36,7 @@ export default function RoleRequest() {
   const selectedOption = ROLE_OPTIONS.find(r => r.value === roleToRequest);
   const hasSelectedRole = roles.includes(roleToRequest);
   // Signing keys (KeyPairCard) for data/infra providers — one per user.
-  const keyRoleName = roles.includes("data-provider") ? "data-provider" : roles.includes("infra-provider") ? "infra-provider" : null;
+  const keyRoleName = roles.includes("provider") ? "data-provider" : roles.includes("infra_provider") ? "infra-provider" : null;
 
   const formatDateTime = value => {
     if (!value) return "";

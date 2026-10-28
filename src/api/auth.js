@@ -1,5 +1,5 @@
-import { BACKEND_URL } from "../config";
-import { authFetch } from "./session";
+import { CONTROLPLANE_URL, GOV_URL } from "../config";
+import { authFetch, getFreshAccessToken } from "./session";
 
 async function parseJsonSafe(res) {
   try {
@@ -17,60 +17,50 @@ function buildHttpError(res, data, fallbackMessage) {
   return err;
 }
 
+// Self-registration through dx-controlplane (POST /iudx/v2/auth/register),
+// which creates the Keycloak user. payload: {username, email, firstName,
+// lastName, password}. Throws with statusCode (409: username/email taken).
 export async function registerUser(payload) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/register`, {
+  const res = await fetch(`${CONTROLPLANE_URL}/iudx/v2/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   const data = await parseJsonSafe(res);
-  if (!res.ok || data?.status === "FAILED") {
-    throw buildHttpError(res, data, "Register failed");
+  if (!res.ok) {
+    throw buildHttpError(res, { ...data, error: data?.detail || data?.title }, "Registration failed");
   }
   return data;
 }
 
-export async function loginUser(payload) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const data = await parseJsonSafe(res);
-  if (!res.ok || data?.status === "FAILED") {
-    throw buildHttpError(res, data, "Login failed");
-  }
-  return data;
-}
-
-export async function refreshAccessToken(refreshToken) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/refresh-token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_token: refreshToken }),
-  });
-  const data = await parseJsonSafe(res);
-  if (!res.ok || data?.status === "FAILED") {
-    throw buildHttpError(res, data, "Refresh failed");
-  }
-  return data;
-}
-
+// Profile from dx-controlplane (GET /iudx/v2/auth/user), reshaped to the
+// { status, user: { username, email, roles } } form the pages already use.
+// The full controlplane record (sub, name, pendingRoles, organisation, ...)
+// is kept on user as well.
 export async function getMe(token) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/me`, {
+  const res = await authFetch(`${CONTROLPLANE_URL}/iudx/v2/auth/user`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
   });
   const data = await parseJsonSafe(res);
-  if (!res.ok || data?.status === "FAILED") {
+  const profile = data?.result;
+  if (!res.ok || !profile) {
     throw buildHttpError(res, data, "Unauthorized");
   }
-  return data;
+  return {
+    status: "SUCCESS",
+    user: {
+      ...profile,
+      username: profile.preferredUsername,
+      email: profile.email,
+      roles: Array.isArray(profile.roles) ? profile.roles : [],
+    },
+  };
 }
 
 export async function notifyProviders(selectedProviders, requestedProviders, outputOwnerId, submissionId, token, willingProviders = []) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/notify-providers`, {
+  const res = await authFetch(`${GOV_URL}/me/fl/notify-providers`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -93,7 +83,7 @@ export async function notifyProviders(selectedProviders, requestedProviders, out
 }
 
 export async function getMyNotifications(token) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/my-notifications`, {
+  const res = await authFetch(`${GOV_URL}/me/notifications`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -108,7 +98,7 @@ export async function getMyNotifications(token) {
 // The caller's own Projects list — fl-orchestrator sees every project,
 // anyone else sees only their own (as output owner).
 export async function getMyProjects(token) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/projects`, {
+  const res = await authFetch(`${GOV_URL}/me/projects`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -121,7 +111,7 @@ export async function getMyProjects(token) {
 }
 
 export async function markNotificationRead(notificationId, token) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/notifications/${notificationId}/read`, {
+  const res = await authFetch(`${GOV_URL}/me/notifications/${encodeURIComponent(notificationId)}/read`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -137,7 +127,7 @@ export async function markNotificationRead(notificationId, token) {
 // A selected provider answers a participation request. response is
 // "accepted" | "declined"; message is an optional reason for the output owner.
 export async function respondToNotification(notificationId, response, message, token) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/notifications/${notificationId}/respond`, {
+  const res = await authFetch(`${GOV_URL}/me/notifications/${encodeURIComponent(notificationId)}/respond`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -155,7 +145,7 @@ export async function respondToNotification(notificationId, response, message, t
 // Output owner: data providers removed from an FL session for declining to
 // participate a second time ([{ username, reason, removed_at }]).
 export async function getRemovedProviders(submissionId, token) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/sessions/${encodeURIComponent(submissionId)}/removed-providers`, {
+  const res = await authFetch(`${GOV_URL}/sessions/${encodeURIComponent(submissionId)}/removed-providers`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const data = await parseJsonSafe(res);
@@ -168,7 +158,7 @@ export async function getRemovedProviders(submissionId, token) {
 // Output owner: send the final participant roster (who's willing + who was
 // selected) to the selected providers, after the consent round.
 export async function notifyRoster(selectedProviders, willingProviders, outputOwnerId, submissionId, token) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/notify-roster`, {
+  const res = await authFetch(`${GOV_URL}/me/fl/notify-roster`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -193,7 +183,7 @@ export async function notifyRoster(selectedProviders, willingProviders, outputOw
 // pages/fl_orchestrator/FL_Orchestrator.jsx) rather than starting it directly - the owner
 // just gets a "requested, waiting" result back.
 export async function queueFlSession(submissionId, participatingProviders, vmName, token) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/gov/queue-fl-session`, {
+  const res = await authFetch(`${GOV_URL}/me/fl/queue-session`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -216,7 +206,7 @@ export async function queueFlSession(submissionId, participatingProviders, vmNam
 // contract): {signatures: "matching"|"not matching", tee: "can run"|"cannot run"}.
 // "Start FL Session" stays disabled until tee is "can run".
 export async function getSessionContractSignatures(submissionId, token) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/contracts/by-session/${encodeURIComponent(submissionId)}/signatures`, {
+  const res = await authFetch(`${GOV_URL}/contracts/by-session/${encodeURIComponent(submissionId)}/signatures`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const data = await parseJsonSafe(res);
@@ -229,7 +219,7 @@ export async function getSessionContractSignatures(submissionId, token) {
 // Output owner: second half of "Start Again" - once every provider has signed
 // the restart's new contract, queue the session for the fl-orchestrator.
 export async function queueRestartedFlSession(submissionId, providerUsernames, token) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/gov/restart-fl-session/queue`, {
+  const res = await authFetch(`${GOV_URL}/me/fl/restart-session/queue`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -252,7 +242,7 @@ export async function queueRestartedFlSession(submissionId, providerUsernames, t
 // invite/accept) and sends it to every provider to sign. The session is
 // queued afterwards via queueRestartedFlSession, once all have signed.
 export async function restartFlSession(submissionId, providerUsernames, token) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/gov/restart-fl-session`, {
+  const res = await authFetch(`${GOV_URL}/me/fl/restart-session`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -276,7 +266,7 @@ export async function restartFlSession(submissionId, providerUsernames, token) {
 // notification to the real owner (rather than "fl-orchestrator", the actual
 // caller) - see the matching parameter on the backend route.
 export async function startFlSession(submissionId, azureToken, participatingProviders, token, outputOwnerUsername) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/gov/start-fl-session`, {
+  const res = await authFetch(`${GOV_URL}/me/fl/start-session`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -301,7 +291,7 @@ export async function startFlSession(submissionId, azureToken, participatingProv
 // VM token straight to the orchestrator - the browser only ever gets back
 // an opaque credential_id to pass on to triggerAutoProvision.
 export async function issueVmCredential(submissionId, password, token) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/fl/vm-credentials`, {
+  const res = await authFetch(`${GOV_URL}/me/fl/vm-credentials`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -322,7 +312,7 @@ export async function issueVmCredential(submissionId, password, token) {
 // Data provider: tell the output owner that Azure sign-in for this FL
 // session is done, so their dashboard can show it live.
 export async function notifyAzureSignIn(ownerUsername, submissionId, token) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/gov/azure-signin`, {
+  const res = await authFetch(`${GOV_URL}/me/fl/azure-signin`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -340,7 +330,7 @@ export async function notifyAzureSignIn(ownerUsername, submissionId, token) {
 // Output owner: read back the stored FL session contract (draft before Final
 // Roster, finalized after) for a submission id, so it can be viewed in the UI.
 export async function getSessionContract(sessionId, token) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/contract/${encodeURIComponent(sessionId)}`, {
+  const res = await authFetch(`${GOV_URL}/contract/${encodeURIComponent(sessionId)}`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
@@ -356,7 +346,7 @@ export async function getSessionContract(sessionId, token) {
 // can have several projects now - draft, final, and any "Start Again"
 // restarts each mint their own project_id/contract).
 export async function getContractByProject(projectId, token) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/contract/by-project/${encodeURIComponent(projectId)}`, {
+  const res = await authFetch(`${GOV_URL}/contracts/by-project/${encodeURIComponent(projectId)}`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
@@ -371,7 +361,7 @@ export async function getContractByProject(projectId, token) {
 // Output owner: fetch the participation responses for notifications this user
 // sent (each selected provider's accepted/declined status + reason).
 export async function getNotificationResponses(token) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/notification-responses`, {
+  const res = await authFetch(`${GOV_URL}/me/notifications/sent`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -382,4 +372,62 @@ export async function getNotificationResponses(token) {
     throw buildHttpError(res, data, "Failed to fetch participation responses");
   }
   return data;
+}
+
+// Live notification nudges from gov_layer (GET /me/notifications/stream,
+// Server-Sent Events). Read with fetch instead of EventSource because the
+// stream needs the Authorization header. Calls onNotification on each
+// {type:"notification"} event and reconnects after drops, like EventSource.
+// Returns a function that closes the stream.
+const STREAM_RETRY_MS = 5000;
+
+export function subscribeToNotifications({ onOpen, onNotification, onError }) {
+  let closed = false;
+  let controller = null;
+  let retryTimer = null;
+
+  const connect = async () => {
+    controller = new AbortController();
+    try {
+      const token = await getFreshAccessToken();
+      const res = await fetch(`${GOV_URL}/me/notifications/stream`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: "text/event-stream" },
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) throw new Error(`Notification stream failed (${res.status})`);
+      onOpen?.();
+
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buffer = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += value;
+        const events = buffer.split("\n\n");
+        buffer = events.pop();
+        for (const event of events) {
+          for (const line of event.split("\n")) {
+            if (!line.startsWith("data:")) continue;
+            try {
+              if (JSON.parse(line.slice(5)).type === "notification") onNotification?.();
+            } catch {
+              // not JSON — ignore
+            }
+          }
+        }
+      }
+      throw new Error("Notification stream closed");
+    } catch (err) {
+      if (closed) return;
+      onError?.(err);
+      retryTimer = setTimeout(connect, STREAM_RETRY_MS);
+    }
+  };
+
+  connect();
+  return () => {
+    closed = true;
+    clearTimeout(retryTimer);
+    controller?.abort();
+  };
 }

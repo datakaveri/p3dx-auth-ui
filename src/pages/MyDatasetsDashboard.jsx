@@ -12,7 +12,7 @@ import Modal from "../components/Modal";
 export default function MyDatasetsDashboard() {
   const { user, token } = useOutletContext();
   const roles = useMemo(() => user?.roles || [], [user]);
-  const hasDataProvider = roles.includes("data-provider");
+  const hasDataProvider = roles.includes("provider");
 
   const navigate = useNavigate();
   const location = useLocation();

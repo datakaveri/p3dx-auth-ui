@@ -9,8 +9,8 @@ import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 export default function ManageTabs({ returnTo }) {
   const { user } = useOutletContext();
   const roles = useMemo(() => user?.roles || [], [user]);
-  const hasDataProvider = roles.includes("data-provider");
-  const hasInfraProvider = roles.includes("infra-provider");
+  const hasDataProvider = roles.includes("provider");
+  const hasInfraProvider = roles.includes("infra_provider");
 
   const navigate = useNavigate();
   const location = useLocation();

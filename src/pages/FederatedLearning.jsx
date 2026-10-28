@@ -1,25 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
-import { BACKEND_URL } from '../config';
+import { GOV_URL } from '../config';
+import { authFetch } from '../api/session';
 import { notifyProviders, getNotificationResponses, notifyRoster, getSessionContract, getMyNotifications, queueFlSession, getSessionContractSignatures, getRemovedProviders } from '../api/auth';
 import ContractSignatureStatus from '../components/ContractSignatureStatus';
 import { getFlOutput, collectFlOutput } from '../api/flOutput';
 import { outputTeaser } from '../components/fl/flOutputFormat';
+import { submitDataProviderForm, submitOutputOwnerForm } from '../api/apd';
 
-const GOVERNANCE_LAYER_URL = `${BACKEND_URL}/p3dx/form-submissions`;
-const DATA_PROVIDER_FORM_URL = `${BACKEND_URL}/p3dx/data-provider-forms`;
-
-// Send Output Owner details to Governance Layer
-async function submitOutputOwnerToGovernance(payload, token) {
-  const res = await fetch(GOVERNANCE_LAYER_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    },
-    body: JSON.stringify({ payload })
-  });
-  return res.json();
+// Send Output Owner details to APD (the store of record for FL forms)
+function submitOutputOwnerToGovernance(payload, token) {
+  return submitOutputOwnerForm(payload, token);
 }
 
 // Fetch the rendered client_config.yaml (output-owner IP in MQTT broker_host +
@@ -48,17 +39,9 @@ function triggerBlobDownload(text, filename) {
   URL.revokeObjectURL(url);
 }
 
-// Data Provider form submission to governance layer
-async function submitDataProviderFormToBackend(payload, token) {
-  const res = await fetch(DATA_PROVIDER_FORM_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    },
-    body: JSON.stringify({ payload })
-  });
-  return res.json();
+// Data Provider form submission to APD
+function submitDataProviderFormToBackend(payload, token) {
+  return submitDataProviderForm(payload, token);
 }
 
 // Derive the pending/willing/declined status for a notified provider from
@@ -272,7 +255,7 @@ export default function FederatedLearning() {
 
   // Check user roles
   const roles = user?.roles || [];
-  const isDataProvider = roles.includes('data-provider');
+  const isDataProvider = roles.includes('provider');
   // No separate "output-owner" role to request/approve - any logged-in user
   // who isn't a data-provider gets the full owner workflow (provider
   // selection, final model, report download).
@@ -327,7 +310,6 @@ export default function FederatedLearning() {
   const [showDistribute, setShowDistribute] = useState(false);
   // Independent in-flight flags so the three actions don't disable each other.
   const [downloading, setDownloading] = useState(false);
-  const [pushing, setPushing] = useState(false);
   const [distributeResult, setDistributeResult] = useState(null);
   // Data-provider "download my client config" status.
   const [dpConfigMsg, setDpConfigMsg] = useState(null);
@@ -404,7 +386,7 @@ export default function FederatedLearning() {
     if (!silent) setProvidersLoading(true);
     setProvidersError(null);
     try {
-      const res = await fetch(`${BACKEND_URL}/p3dx/api/v1/data-providers`, {
+      const res = await authFetch(`${GOV_URL}/me/fl/data-providers`, {
         headers: { Authorization: `Bearer ${freshToken}` },
         cache: 'no-store',
       });
@@ -793,40 +775,6 @@ export default function FederatedLearning() {
     setDownloading(false);
   };
 
-  // Owner-side: PUSH the rendered config over HTTP to each selected provider's
-  // receiver (ip:port from their registration form). gov_layer does the POSTs.
-  const handlePushConfig = async () => {
-    const id = reportSubmissionId || sessionStorage.getItem('last_report_submission_id');
-    if (!id) {
-      setDistributeResult({ ok: false, text: 'No submission found. Submit the request first.' });
-      return;
-    }
-    const freshToken = sessionStorage.getItem('access_token') || token;
-    setPushing(true);
-    setDistributeResult(null);
-    try {
-      const res = await fetch(`${BACKEND_URL}/p3dx/gov/push-config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${freshToken}` },
-        body: JSON.stringify({ submission_id: id }),
-      });
-      const data = await res.json();
-      const s = data.summary || { sent: 0, failed: 0, skipped: 0 };
-      const details = (data.results || []).map(
-        r => `- ${r.username} (${r.ip || '?'}:${r.port || '?'}) - ${r.status}${r.reason ? ': ' + r.reason : ''}${r.http ? ' [HTTP ' + r.http + ']' : ''}`
-      );
-      setDistributeResult({
-        ok: data.status === 'SUCCESS',
-        text: data.message || `Push complete - sent ${s.sent}, failed ${s.failed}, skipped ${s.skipped}.`,
-        details,
-      });
-    } catch (e) {
-      setDistributeResult({ ok: false, text: `Push failed: ${e.message}` });
-    } finally {
-      setPushing(false);
-    }
-  };
-
   // Owner-side: just queues the request - no Azure sign-in, no popup, no
   // navigation here. The fl-orchestrator operator account picks this up from
   // their own /app/orchestrator queue (pages/fl_orchestrator/FL_Orchestrator.jsx) and does
@@ -891,14 +839,11 @@ export default function FederatedLearning() {
               )}
             </div>
             <div className="modal-actions">
-              <button className="btn btn-secondary" style={{ width: 'auto' }} onClick={() => setShowDistribute(false)} disabled={downloading || pushing}>
+              <button className="btn btn-secondary" style={{ width: 'auto' }} onClick={() => setShowDistribute(false)} disabled={downloading}>
                 Close
               </button>
               <button className="btn btn-secondary" style={{ width: 'auto' }} onClick={handleDownloadConfig} disabled={downloading}>
                 {downloading ? 'Working...' : 'Download Config (YAML)'}
-              </button>
-              <button className="btn btn-primary" style={{ width: 'auto' }} onClick={handlePushConfig} disabled={pushing}>
-                {pushing ? 'Sending...' : 'Send to Providers'}
               </button>
               <button
                 className="btn btn-primary"

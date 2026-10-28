@@ -21,7 +21,7 @@ const TEE_SESSION_POLL_MS = 5000;
 const TEE_SESSION_ACTIVE = new Set(["provisioning", "attesting", "running"]);
 
 // TEE only: the workload to run inside the enclave comes from gov_layer's
-// catalogue (services.KnownWorkloads, via GET /p3dx/workloads/catalog). The
+// catalogue (services.KnownWorkloads, via GET /workloads). The
 // selected id is sent as applicationId and lands in the contract's
 // application_providers party.
 
