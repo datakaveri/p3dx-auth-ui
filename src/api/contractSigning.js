@@ -68,36 +68,6 @@ export async function setConsentExpiry(token, contractId, validUntil) {
   return data;
 }
 
-function pemToDer(pem, label) {
-  const b64 = pem
-    .replace(new RegExp(`-----BEGIN ${label}-----`), "")
-    .replace(new RegExp(`-----END ${label}-----`), "")
-    .replace(/\s+/g, "");
-  return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-}
-
-// Checks the governance layer's signature over the contract hash with the
-// governance public key (SPKI PEM) sent alongside the sign request —
-// RSASSA-PKCS1-v1_5 / SHA-256 over the hash string, the same scheme the
-// provider signs with. Resolves true/false; a provider should only sign a
-// hash whose governance signature verifies.
-export async function verifyGovernanceSignature(publicKeyPem, contractHash, signatureB64) {
-  if (!publicKeyPem || !contractHash || !signatureB64) return false;
-  try {
-    const key = await crypto.subtle.importKey(
-      "spki",
-      pemToDer(publicKeyPem, "PUBLIC KEY"),
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-      false,
-      ["verify"]
-    );
-    const sig = Uint8Array.from(atob(signatureB64), c => c.charCodeAt(0));
-    return await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, sig, new TextEncoder().encode(contractHash));
-  } catch {
-    return false;
-  }
-}
-
 // Signs the contract hash string in the browser with the provider's
 // PKCS#8 PEM private key (the file saved by "Generate Key Pair"), using
 // RSASSA-PKCS1-v1_5 / SHA-256 — what gov_layer's VerifyContractHashSignature

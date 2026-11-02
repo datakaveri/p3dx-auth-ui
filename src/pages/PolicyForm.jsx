@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { submitPolicy, getMyDatasetDetails } from "../api/policies";
+import { submitDataProviderForm } from "../api/apd";
 // import { applications as APPLICATIONS } from "../data/catalogueData";
 import { listWorkloads } from "../api/workloads";
 
@@ -13,6 +14,7 @@ const ORGS = [
 
 // Splits a comma-separated string into a trimmed, non-empty string array.
 const toList = value => value.split(",").map(s => s.trim()).filter(Boolean);
+
 
 // Mirrors InfraPolicyForm.jsx's slugify() exactly — used to derive the
 // data-provider's Provider ID from their own identity, the same way infra
@@ -276,8 +278,24 @@ export default function PolicyForm() {
         : {}),
     };
 
+    const now = new Date().toISOString();
+    const flPayload = {
+      form_id: form.datasetId,
+      data_owner_id: user?.username || "",
+      dataset_name: form.datasetName,
+      dataset_location_url: form.dataUrl,
+      data_resource_id: form.datasetId,
+      filled: true,
+      requested_at: now,
+      filled_at: now,
+    };
+
     try {
       await submitPolicy(token, payload);
+      const flRes = await submitDataProviderForm(flPayload, sessionStorage.getItem("access_token") || token);
+      if (flRes.status !== "SUCCESS") {
+        throw new Error(`Policy saved, but the federated learning details failed: ${flRes.error || "unknown error"}. Submit again to retry.`);
+      }
       window.setTimeout(() => {
         navigate(returnTo, { replace: true });
       }, 1800);
@@ -297,7 +315,7 @@ export default function PolicyForm() {
           <div style={{ color: "var(--text-light)", fontSize: "14px" }}>
             {isEditMode
               ? "Update your dataset access policy in APD."
-              : "Submit a dataset access policy to APD so TOP can validate workload contracts."}
+              : "Register your dataset once, with its access policy. It's used by every service (TEE, SMPC, Federated Learning)."}
           </div>
         </div>
         <div className="page-header-actions">

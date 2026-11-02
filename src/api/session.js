@@ -71,6 +71,25 @@ function withBearer(options, token) {
   return { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` } };
 }
 
+// gov_layer's "your token lacks the role" refusals. Roles live in the access
+// token, so a role an admin granted after login is missing until the token
+// is reissued — even though the profile (read live from Keycloak) shows it.
+const MISSING_ROLE_ERRORS = new Set(["INSUFFICIENT_ROLE", "INFRA_PROVIDER_ROLE_REQUIRED"]);
+
+async function isMissingRole(res) {
+  const body = await res.clone().json().catch(() => null);
+  return MISSING_ROLE_ERRORS.has(body?.error);
+}
+
+// Refresh once to pick up newly-granted roles and retry. Skipped when the
+// token was just refreshed: then the role really is missing, and refreshing
+// again would re-render every page and refetch forever.
+async function retryWithNewRoles(url, options, res) {
+  if (Date.now() - lastRefreshAt < RECENT_REFRESH_MS) return res;
+  const retryToken = await refreshSession();
+  return retryToken ? fetch(url, withBearer(options, retryToken)) : res;
+}
+
 // Drop-in replacement for fetch() on authenticated API calls. Ignores the
 // (possibly stale) token the caller baked into the Authorization header and
 // uses the freshest one instead; non-authenticated calls pass straight through.
@@ -79,6 +98,7 @@ export async function authFetch(url, options = {}) {
 
   const token = await getFreshAccessToken();
   const res = await fetch(url, token ? withBearer(options, token) : options);
+  if (res.status === 403 && (await isMissingRole(res))) return retryWithNewRoles(url, options, res);
   if (res.status !== 401) return res;
 
   // A 401 on a token that was just refreshed isn't an expiry (e.g. a

@@ -95,6 +95,42 @@ export async function getMyNotifications(token) {
   return data;
 }
 
+// Every dataset on the platform for an FL output owner to pick from, each with
+// its provider, whether that provider is set up for FL (fl_ready) and their
+// infrastructure's vCPUs. Returns { status, datasets }.
+export async function listFlDatasets(token) {
+  const res = await authFetch(`${GOV_URL}/me/fl/datasets`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to fetch datasets");
+  }
+  return data;
+}
+
+// Checks the owner's picked datasets against their configuration (Max vCPUs).
+// gov_layer notifies each out-of-constraint dataset's provider and returns
+// { status, matching, mismatched (each with a reason), unknown }.
+export async function checkFlDatasets(submissionId, maxVcpus, datasetIds, token) {
+  const res = await authFetch(`${GOV_URL}/me/fl/check-datasets`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ submission_id: submissionId, max_vcpus: maxVcpus, dataset_ids: datasetIds }),
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to check datasets");
+  }
+  return data;
+}
+
 // The caller's own Projects list — fl-orchestrator sees every project,
 // anyone else sees only their own (as output owner).
 export async function getMyProjects(token) {

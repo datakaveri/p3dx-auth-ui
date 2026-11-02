@@ -138,10 +138,10 @@ export async function getContractSignatures(token, contractId) {
 // datasetName is its display name, sent separately so gov_layer can look
 // the policy up by the real id while still labeling the contract with the
 // name a human recognizes. infraIds is the InfraCat selection (SMPC only,
-// exactly 2); omitted for TEE/FL. applicationId is the selected workload
-// (TEE only) — becomes the contract's application provider party.
+// exactly 2); omitted for TEE/FL. workloadId is the selected workload
+// (TEE only) — becomes the contract's workload.id.
 // Returns { status, contract }.
-export async function previewContract(token, { datasets, technique, infraIds, applicationId, purpose }) {
+export async function previewContract(token, { datasets, technique, infraIds, workloadId, purpose }) {
   const ds = (datasets || []).map(d => ({
     dataset_id: d.datasetId || d.dataset,
     dataset_name: d.datasetName || d.datasetId || d.dataset,
@@ -155,10 +155,10 @@ export async function previewContract(token, { datasets, technique, infraIds, ap
     headers: authHeaders(token),
     body: JSON.stringify({
       datasets: ds,
-      application_id: applicationId || "unselected-application",
       technique,
+      ...(workloadId ? { workload_id: workloadId } : {}),
       ...(infraIds?.length ? { infra_ids: infraIds } : {}),
-      // Stated purpose of processing (DPDP Rule 3 notice) — required for TEE.
+      // Stated purpose of processing (DPDP Rule 3 notice) — optional.
       ...(purpose?.trim() ? { purpose: purpose.trim() } : {}),
     }),
   });

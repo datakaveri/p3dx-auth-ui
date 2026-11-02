@@ -12,7 +12,7 @@ import KeyPairCard from "../components/KeyPairCard";
 const ROLE_OPTIONS = [
   { value: "application_provider", label: "Application Provider — SMPC / TEE / Differential Privacy" },
   { value: "provider", label: "Data Provider — Federated Learning / SMPC / TEE / Differential Privacy" },
-  { value: "infra_provider", label: "Infrastructure Provider — SMPC" },
+  { value: "infra_provider", label: "Infrastructure Provider — SMPC, Federated Learning" },
 ];
 
 export default function RoleRequest() {
