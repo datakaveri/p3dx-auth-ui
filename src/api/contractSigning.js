@@ -1,4 +1,4 @@
-import { BACKEND_URL } from "../config";
+import { GOV_URL } from "../config";
 import { authFetch } from "./session";
 
 async function parseJsonSafe(res) {
@@ -12,7 +12,7 @@ async function parseJsonSafe(res) {
 // Contracts (FL final roster, TEE, SMPC) waiting on (or already given) this
 // data provider's signature.
 export async function listContractSignRequests(token) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/contracts/sign-requests`, {
+  const res = await authFetch(`${GOV_URL}/me/sign-requests`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const data = await parseJsonSafe(res);
@@ -23,10 +23,11 @@ export async function listContractSignRequests(token) {
 }
 
 export async function submitContractSignature(token, contractId, { notificationId, contractHash, signature }) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/contracts/${encodeURIComponent(contractId)}/sign`, {
+  // gov_layer signs as the token's user (no provider_username needed).
+  const res = await authFetch(`${GOV_URL}/contracts/${encodeURIComponent(contractId)}/sign`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ notificationId, contractHash, signature }),
+    body: JSON.stringify({ notification_id: notificationId, contract_hash: contractHash, signature }),
   });
   const data = await parseJsonSafe(res);
   if (!res.ok || data?.status !== "signed") {
@@ -38,10 +39,10 @@ export async function submitContractSignature(token, contractId, { notificationI
 // Withdraws the consent this provider gave by signing a TEE contract (DPDP
 // Act s.6(4)). gov_layer clears their signature, so no further run starts.
 export async function withdrawConsent(token, contractId, { notificationId }) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/contracts/${encodeURIComponent(contractId)}/withdraw-consent`, {
+  const res = await authFetch(`${GOV_URL}/contracts/${encodeURIComponent(contractId)}/withdraw-consent`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ notificationId }),
+    body: JSON.stringify({ notification_id: notificationId }),
   });
   const data = await parseJsonSafe(res);
   if (!res.ok || data?.status !== "withdrawn") {
@@ -55,46 +56,16 @@ export async function withdrawConsent(token, contractId, { notificationId }) {
 // UTC), before signing. gov_layer updates the contract
 // and re-sends every sign request (the hash changes), and tells the consumer.
 export async function setConsentExpiry(token, contractId, validUntil) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/contracts/${encodeURIComponent(contractId)}/consent-expiry`, {
+  const res = await authFetch(`${GOV_URL}/contracts/${encodeURIComponent(contractId)}/consent-expiry`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ validUntil }),
+    body: JSON.stringify({ valid_until: validUntil }),
   });
   const data = await parseJsonSafe(res);
   if (!res.ok || data?.status !== "SUCCESS") {
     throw new Error(data?.message || data?.error || "Failed to set consent expiry");
   }
   return data;
-}
-
-function pemToDer(pem, label) {
-  const b64 = pem
-    .replace(new RegExp(`-----BEGIN ${label}-----`), "")
-    .replace(new RegExp(`-----END ${label}-----`), "")
-    .replace(/\s+/g, "");
-  return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-}
-
-// Checks the governance layer's signature over the contract hash with the
-// governance public key (SPKI PEM) sent alongside the sign request —
-// RSASSA-PKCS1-v1_5 / SHA-256 over the hash string, the same scheme the
-// provider signs with. Resolves true/false; a provider should only sign a
-// hash whose governance signature verifies.
-export async function verifyGovernanceSignature(publicKeyPem, contractHash, signatureB64) {
-  if (!publicKeyPem || !contractHash || !signatureB64) return false;
-  try {
-    const key = await crypto.subtle.importKey(
-      "spki",
-      pemToDer(publicKeyPem, "PUBLIC KEY"),
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-      false,
-      ["verify"]
-    );
-    const sig = Uint8Array.from(atob(signatureB64), c => c.charCodeAt(0));
-    return await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, sig, new TextEncoder().encode(contractHash));
-  } catch {
-    return false;
-  }
 }
 
 // Signs the contract hash string in the browser with the provider's

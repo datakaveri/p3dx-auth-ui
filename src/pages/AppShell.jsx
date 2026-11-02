@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { getMe } from "../api/auth";
+import { logout } from "../api/oidc";
 import { getTokenExpiryMs, refreshSession, SESSION_EXPIRED_EVENT, TOKEN_REFRESHED_EVENT } from "../api/session";
 import dataForPublicGoodLogo from "../assets/data-for-public-good-logo.png";
 import iiscLogo from "../assets/iisc-logo.png";
@@ -180,15 +181,15 @@ export default function AppShell() {
   }, [navigate]);
 
   const roles = useMemo(() => user?.roles || [], [user]);
-  const isAdmin = roles.includes("admin");
+  const isAdmin = roles.includes("cos_admin");
   // The fl-orchestrator platform operator (see p3dx-aaa/scripts/create-fl-orchestrator-user.js)
   // gets its own landing page instead of the normal owner/provider flow.
   const isOrchestrator = roles.includes("fl-orchestrator");
   // A user only ever holds one of these two provider roles in practice (same
   // assumption UserDashboard.jsx's keyRoleName makes) — drives which
   // role-exclusive management dashboard the nav "Manage" tab points at.
-  const hasInfraProvider = roles.includes("infra-provider");
-  const hasDataProvider = roles.includes("data-provider");
+  const hasInfraProvider = roles.includes("infra_provider");
+  const hasDataProvider = roles.includes("provider");
 
   useEffect(() => {
     if (!token) {
@@ -472,11 +473,7 @@ export default function AppShell() {
         <div className="sidebar-footer">
           <button
             className="btn btn-logout"
-            onClick={() => {
-              sessionStorage.removeItem("access_token");
-              sessionStorage.removeItem("last_report_submission_id");
-              navigate("/login");
-            }}
+            onClick={logout}
             style={{ marginTop: 0, width: "100%" }}
             title={collapsed ? "Logout" : undefined}
             aria-label="Logout"

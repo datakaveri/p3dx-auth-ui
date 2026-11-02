@@ -7,6 +7,7 @@ import {
 import {
   listAvailableDatasets, listAvailableInfrastructure, getInfrastructureDetails,
 } from "../api/roleRequests";
+import { listFlDatasets } from "../api/auth";
 import ContractPreviewModal from "../components/ContractPreviewModal";
 import TeeJobProgress from "../components/TeeJobProgress";
 import {
@@ -21,9 +22,9 @@ const TEE_SESSION_POLL_MS = 5000;
 const TEE_SESSION_ACTIVE = new Set(["provisioning", "attesting", "running"]);
 
 // TEE only: the workload to run inside the enclave comes from gov_layer's
-// catalogue (services.KnownWorkloads, via GET /p3dx/workloads/catalog). The
-// selected id is sent as applicationId and lands in the contract's
-// application_providers party.
+// catalogue (services.KnownWorkloads, via GET /workloads). The
+// selected id is sent as workloadId (workload_id) and lands in the contract's
+// workload.id.
 
 const TEE_SESSION_LABELS = {
   provisioning: "Starting the confidential VM (cold boot can take a minute)…",
@@ -101,6 +102,9 @@ export default function WorkloadForm() {
   const isSMPCTechnique = technique === "SMPC";
   // Workload selection only applies to TEE — exactly one is required.
   const isTEETechnique = technique === "TEE";
+  // FL: the output owner picks datasets here, then continues to the FL
+  // configuration page with them (no contract is generated from here).
+  const isFLTechnique = technique === "FL";
 
   // Redirect admins
   useEffect(() => {
@@ -117,7 +121,8 @@ export default function WorkloadForm() {
   const [datasetSearchQuery, setDatasetSearchQuery] = useState("");
   const [infraSearchQuery, setInfraSearchQuery] = useState("");
   // Any number >= 1 of datasets may be selected (was a single scalar id).
-  const [selectedDatasetIds, setSelectedDatasetIds] = useState([]);
+  // FL "Change Datasets" comes back here with the current selection.
+  const [selectedDatasetIds, setSelectedDatasetIds] = useState(() => location.state?.selectedDatasetIds || []);
   // TEE only: single selection from the workload catalogue (null until picked).
   const [workloads, setWorkloads] = useState([]);
   const [workloadsError, setWorkloadsError] = useState(null);
@@ -149,6 +154,18 @@ export default function WorkloadForm() {
       setDatasetsLoading(true);
       setDatasetsError(null);
       try {
+        if (isFLTechnique) {
+          // FL lists only datasets whose provider is set up for FL (has
+          // infrastructure), shown by name only; `fl` keeps the full entry
+          // (provider, vCPUs) for the FL configuration page.
+          const data = await listFlDatasets(token);
+          if (!cancelled) {
+            setDatasetList((data?.datasets || [])
+              .filter(d => d.fl_ready)
+              .map(d => ({ id: d.dataset_id, name: d.dataset_name, fl: d })));
+          }
+          return;
+        }
         const data = await listAvailableDatasets(token);
         if (!cancelled) {
           setDatasetList(Array.isArray(data?.datasets) ? data.datasets : []);
@@ -161,7 +178,7 @@ export default function WorkloadForm() {
     }
     if (token) loadDatasets();
     return () => { cancelled = true; };
-  }, [token]);
+  }, [token, isFLTechnique]);
 
   // Infrastructure Catalogue (InfraCat) — registered infra-provider policies,
   // SMPC only. Mirrors the dataset-loading effect above.
@@ -315,7 +332,7 @@ export default function WorkloadForm() {
         datasets: selectedDatasets.map(d => ({ datasetId: d.id, datasetName: d.name })),
         technique,
         infraIds: selectedInfraIds,
-        ...(isTEETechnique ? { applicationId: selectedWorkloadId, ...(purpose.trim() ? { purpose: purpose.trim() } : {}) } : {}),
+        ...(isTEETechnique ? { workloadId: selectedWorkloadId, ...(purpose.trim() ? { purpose: purpose.trim() } : {}) } : {}),
       });
       const contract = res?.contract || null;
       setGeneratedContract(contract);
@@ -492,7 +509,9 @@ export default function WorkloadForm() {
             ? "Registered infrastructure isn't categorized yet — search by name or region instead."
             : showWorkloadTab
               ? "Pick the one workload the TEE should run on the selected dataset(s)."
-              : "Registered datasets aren't categorized yet — search by name instead."}
+              : isFLTechnique
+                ? "Datasets whose providers have infrastructure set up for federated learning. Pick the ones to train on."
+                : "Registered datasets aren't categorized yet — search by name instead."}
         </div>
         {/* Run TEE progress: polls the coordinator's GetJob every 5s. */}
         {teeJob?.job?.jobId && <TeeJobProgress token={token} jobId={teeJob.job.jobId} />}
@@ -841,13 +860,27 @@ export default function WorkloadForm() {
         {/* Status */}
         <div className={`cat-status${canRun ? " cat-status--ready" : ""}`}>
           {canRun
-            ? <><CheckCircle2 size={15} /><span>Ready to generate consent request</span></>
+            ? <><CheckCircle2 size={15} /><span>{isFLTechnique ? "Ready to continue to FL configuration" : "Ready to generate consent request"}</span></>
             : <><AlertCircle size={15} /><span>Select {missingItems.join(", ")} to continue</span></>
           }
         </div>
 
-        {/* Generate button — this only builds and displays a contract. For
-            TEE/SMPC it can then be submitted for a run via the button below. */}
+        {/* FL: no contract from here — carry the picked datasets to the FL
+            configuration page, which invites their providers. */}
+        {isFLTechnique ? (
+          <button
+            className="btn btn-primary"
+            style={{ width: "100%", marginTop: 0 }}
+            disabled={!canRun}
+            onClick={() => navigate("/app/services/fl/federated-learning", {
+              state: { flDatasets: selectedDatasets.map(d => d.fl) },
+            })}
+          >
+            <Play size={14} style={{ marginRight: 6 }} />Continue to FL Configuration
+          </button>
+        ) : (
+        /* Generate button — this only builds and displays a contract. For
+            TEE/SMPC it can then be submitted for a run via the button below. */
         <button
           className="btn btn-primary"
           style={{ width: "100%", marginTop: 0 }}
@@ -860,6 +893,7 @@ export default function WorkloadForm() {
             <><Play size={14} style={{ marginRight: 6 }} />Generate Consent Request</>
           )}
         </button>
+        )}
 
         {generatedContract && (
           <div className="card" style={{ marginTop: 14 }}>

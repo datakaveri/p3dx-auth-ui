@@ -1,4 +1,4 @@
-import { BACKEND_URL } from "../config";
+import { GOV_URL, TEE_URL } from "../config";
 import { authFetch } from "./session";
 
 function authHeaders(token) {
@@ -16,31 +16,14 @@ async function parseJsonSafe(res) {
   }
 }
 
-export async function runWorkload(token, { datasetId, applicationId }) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/workloads/run`, {
-    method: "POST",
-    headers: authHeaders(token),
-    body: JSON.stringify({ datasetId, applicationId }),
-  });
-
-  const data = await parseJsonSafe(res);
-
-  if (!res.ok || data?.status === "FAILED") {
-    const msg = data?.error || data?.message || `Run workload failed (${res.status})`;
-    throw new Error(msg);
-  }
-
-  return data;
-}
-
 // Run TEE: gov_layer builds the CreateJob sub-contract from the generated
 // contract and runs grpcurl against the Kata coordinator (via p3dx-aaa).
 // Resolves to { status, subContract, job }.
 export async function runTeeJob(token, contractId) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/workloads/tee-run`, {
+  const res = await authFetch(`${TEE_URL}/v1/tee/run`, {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify({ contractId }),
+    body: JSON.stringify({ contract_id: contractId }),
   });
 
   const data = await parseJsonSafe(res);
@@ -55,7 +38,7 @@ export async function runTeeJob(token, contractId) {
 
 // Every workload a TEE contract can run: [{ id, name, image, cpu, memory }].
 export async function listWorkloads(token) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/workloads/catalog`, { headers: authHeaders(token) });
+  const res = await authFetch(`${GOV_URL}/workloads`, { headers: authHeaders(token) });
   const data = await parseJsonSafe(res);
   if (!res.ok || data?.status === "FAILED") {
     throw new Error(data?.message || data?.error || `Loading workloads failed (${res.status})`);
@@ -68,7 +51,7 @@ export async function listWorkloads(token) {
 // it as an amendment: no re-signing, and the run uses the edited contract.
 // Resolves to { contract, changes, signed_hash, content_hash, ... }.
 export async function editContract(token, contractId, changes) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/workloads/contracts/${encodeURIComponent(contractId)}`, {
+  const res = await authFetch(`${GOV_URL}/contracts/${encodeURIComponent(contractId)}`, {
     method: "PUT",
     headers: authHeaders(token),
     body: JSON.stringify(changes),
@@ -86,7 +69,7 @@ export async function editContract(token, contractId, changes) {
 // Run TEE progress: the coordinator job's current state (gov_layer runs
 // grpcurl GetJob, via p3dx-aaa). Resolves to { status, job }.
 export async function getTeeJob(token, jobId) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/workloads/tee-jobs/${encodeURIComponent(jobId)}`, {
+  const res = await authFetch(`${TEE_URL}/v1/tee/jobs/${encodeURIComponent(jobId)}`, {
     method: "GET",
     headers: authHeaders(token),
   });
@@ -104,7 +87,7 @@ export async function getTeeJob(token, jobId) {
 // View Result: the TEE job's result blob, fetched server-side by gov_layer.
 // Resolves to { status, result } (JSON) or { status, output } (text).
 export async function getTeeJobResult(token, jobId) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/workloads/tee-jobs/${encodeURIComponent(jobId)}/result`, {
+  const res = await authFetch(`${TEE_URL}/v1/tee/jobs/${encodeURIComponent(jobId)}/result`, {
     method: "GET",
     headers: authHeaders(token),
   });
@@ -125,7 +108,7 @@ export async function getTeeJobResult(token, jobId) {
 // consent request preview shows later changes such as a data provider's
 // consent expiry. Resolves to the contract.
 export async function getLiveContract(token, contractId) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/workloads/contracts/${encodeURIComponent(contractId)}/live`, {
+  const res = await authFetch(`${GOV_URL}/contracts/${encodeURIComponent(contractId)}`, {
     headers: authHeaders(token),
   });
   const data = await parseJsonSafe(res);
@@ -136,7 +119,7 @@ export async function getLiveContract(token, contractId) {
 }
 
 export async function getContractSignatures(token, contractId) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/workloads/contracts/${encodeURIComponent(contractId)}/signatures`, {
+  const res = await authFetch(`${GOV_URL}/contracts/${encodeURIComponent(contractId)}/signatures`, {
     headers: authHeaders(token),
   });
 
@@ -155,29 +138,69 @@ export async function getContractSignatures(token, contractId) {
 // datasetName is its display name, sent separately so gov_layer can look
 // the policy up by the real id while still labeling the contract with the
 // name a human recognizes. infraIds is the InfraCat selection (SMPC only,
-// exactly 2); omitted for TEE/FL. applicationId is the selected workload
-// (TEE only) — becomes the contract's application provider party.
-export async function previewContract(token, { datasets, technique, infraIds, applicationId, purpose }) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/workloads/preview-contract`, {
+// exactly 2); omitted for TEE/FL. workloadId is the selected workload
+// (TEE only) — becomes the contract's workload.id.
+// Returns { status, contract }.
+export async function previewContract(token, { datasets, technique, infraIds, workloadId, purpose }) {
+  const ds = (datasets || []).map(d => ({
+    dataset_id: d.datasetId || d.dataset,
+    dataset_name: d.datasetName || d.datasetId || d.dataset,
+  }));
+  if (ds.length === 0 || ds.some(d => !d.dataset_id)) throw new Error("MISSING_DATASET_IDS");
+  if (!["FL", "TEE", "SMPC"].includes(technique)) throw new Error("INVALID_TECHNIQUE");
+  if (technique === "SMPC" && infraIds?.length !== 2) throw new Error("INFRA_COUNT_MUST_BE_2");
+
+  const res = await authFetch(`${GOV_URL}/generate-contract`, {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({
-      datasets, technique,
-      ...(infraIds?.length ? { infraIds } : {}),
-      ...(applicationId ? { applicationId } : {}),
-      // Stated purpose of processing (DPDP Rule 3 notice) — required for TEE.
-      ...(purpose ? { purpose } : {}),
+      datasets: ds,
+      technique,
+      ...(workloadId ? { workload_id: workloadId } : {}),
+      ...(infraIds?.length ? { infra_ids: infraIds } : {}),
+      // Stated purpose of processing (DPDP Rule 3 notice) — optional.
+      ...(purpose?.trim() ? { purpose: purpose.trim() } : {}),
     }),
   });
 
   const data = await parseJsonSafe(res);
 
   if (!res.ok || data?.status === "FAILED") {
-    const msg = data?.error || data?.message || `Contract preview failed (${res.status})`;
-    throw new Error(msg);
+    // 409 CONTRACT_PENDING: a contract for these datasets is still awaiting
+    // approval; its message says so.
+    const msg = data?.message || data?.error || `Contract preview failed (${res.status})`;
+    const err = new Error(msg);
+    err.code = data?.error;
+    err.contract = data?.contract;
+    throw err;
   }
 
-  return data;
+  return { status: "SUCCESS", contract: data?.contract };
+}
+
+// The TEE session request gov_layer's /v1/tee/sessions expects; gov_layer
+// sets consumerId from the token itself.
+function buildTeeContract({ datasetUrl, datasetId, datasetName, contractId }) {
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 30 * 60 * 1000); // 30-minute run window
+  return {
+    contractId: crypto.randomUUID(),
+    requestId: crypto.randomUUID(),
+    governanceContractId: contractId,
+    providerId: "demo-provider",
+    appDetails: { imageId: "skald-anonymizer", imageHash: "unpinned-demo-measurement", version: "1.0" },
+    datasetDetails: {
+      itemId: datasetId || "demo-dataset",
+      assetName: datasetName || datasetId || "demo-dataset",
+      assetType: "dataset",
+      resourceUrl: datasetUrl,
+    },
+    accessConfig: { type: "read" },
+    consumerPublicKey: "",
+    apdCallbackUrl: "",
+    issuedAt: now.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+  };
 }
 
 // Starts a real TEE session against the confidential VM (gov_layer
@@ -189,10 +212,19 @@ export async function previewContract(token, { datasets, technique, infraIds, ap
 // contractId is the generated contract's contract_id — gov_layer refuses to
 // start a TEE unless every data provider on it has signed.
 export async function startTeeSession(token, { datasetUrl, datasetId, datasetName, contractId }) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/workloads/tee-sessions`, {
+  if (!contractId) throw new Error("MISSING_CONTRACT_ID");
+  let parsed;
+  try {
+    parsed = new URL(datasetUrl);
+  } catch {
+    throw new Error("INVALID_DATASET_URL");
+  }
+  if (parsed.protocol !== "https:") throw new Error("DATASET_URL_MUST_BE_HTTPS");
+
+  const res = await authFetch(`${TEE_URL}/v1/tee/sessions`, {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify({ datasetUrl, datasetId, datasetName, contractId }),
+    body: JSON.stringify(buildTeeContract({ datasetUrl, datasetId, datasetName, contractId })),
   });
 
   const data = await parseJsonSafe(res);
@@ -206,7 +238,7 @@ export async function startTeeSession(token, { datasetUrl, datasetId, datasetNam
 }
 
 export async function getTeeSessionStatus(token, sessionId) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/workloads/tee-sessions/${encodeURIComponent(sessionId)}`, {
+  const res = await authFetch(`${TEE_URL}/v1/tee/sessions/${encodeURIComponent(sessionId)}`, {
     method: "GET",
     headers: authHeaders(token),
   });
@@ -225,7 +257,7 @@ export async function getTeeSessionStatus(token, sessionId) {
 // browser file-save, same blob + temporary-anchor pattern as
 // api/keyPair.js's private-key save fallback.
 export async function downloadTeeSessionOutput(token, sessionId) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/workloads/tee-sessions/${encodeURIComponent(sessionId)}/output`, {
+  const res = await authFetch(`${TEE_URL}/v1/tee/sessions/${encodeURIComponent(sessionId)}/output`, {
     headers: { Authorization: `Bearer ${token}` },
   });
 
@@ -251,7 +283,7 @@ export async function downloadTeeSessionOutput(token, sessionId) {
 
 // Terminates a TEE session's confidential VM so it stops billing compute.
 export async function terminateTeeSession(token, sessionId) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/workloads/tee-sessions/${encodeURIComponent(sessionId)}`, {
+  const res = await authFetch(`${TEE_URL}/v1/tee/sessions/${encodeURIComponent(sessionId)}`, {
     method: "DELETE",
     headers: authHeaders(token),
   });
@@ -263,19 +295,5 @@ export async function terminateTeeSession(token, sessionId) {
     throw new Error(msg);
   }
 
-  return data;
-}
-
-export async function getWorkloadResult(token, contractId) {
-  const res = await authFetch(`${BACKEND_URL}/p3dx/workloads/contracts/${contractId}/result`, {
-    method: "GET",
-    headers: authHeaders(token),
-  });
-
-  const data = await parseJsonSafe(res);
-  if (!res.ok || data?.status === "FAILED") {
-    const msg = data?.error || data?.message || `Get workload result failed (${res.status})`;
-    throw new Error(msg);
-  }
   return data;
 }

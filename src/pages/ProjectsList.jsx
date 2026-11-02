@@ -6,7 +6,7 @@ import ContractSignatureStatus from "../components/ContractSignatureStatus";
 
 // Projects page (see AppShell.jsx sidebar "Projects" link, under "Services").
 // fl-orchestrator sees every project; anyone else sees only their own (as
-// output owner) - the backend (GET /p3dx/projects) does that filtering, this
+// output owner) - gov_layer (GET /me/projects) does that filtering, this
 // page just renders whatever list comes back. Deliberately shows only the
 // project number and its data providers, no owner name (see FL_Orchestrator.jsx
 // for the pending-request view, which is a different list).

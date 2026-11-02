@@ -85,7 +85,7 @@ export default function ContractPreviewModal({ open, contract, onClose, onEdit, 
   const startEdit = () => {
     setEditError(null);
     setDraft({
-      workload_id: contract.parties?.application_providers?.[0]?.id || "",
+      workload_id: contract.workload?.id || contract.parties?.application_providers?.[0]?.id || "",
       image: contract.workload?.image || "",
       cpu: contract.workload?.resources?.cpu || "",
       memory: contract.workload?.resources?.memory || "",
@@ -223,7 +223,7 @@ export default function ContractPreviewModal({ open, contract, onClose, onEdit, 
                   <Field
                     label="Workload"
                     value={(() => {
-                      const id = parties.application_providers?.[0]?.id;
+                      const id = contract.workload?.id || parties.application_providers?.[0]?.id;
                       return workloads.find(w => w.id === id)?.name || id;
                     })()}
                   />

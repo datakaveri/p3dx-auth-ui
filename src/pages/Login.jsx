@@ -1,119 +1,40 @@
 import { useState } from "react";
-import { loginUser } from "../api/auth";
-import { APP_URL } from "../config";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { passwordLogin } from "../api/oidc";
 
 export default function Login() {
-    const [form, setForm] = useState({});
+    const navigate = useNavigate();
+    // Set by the sign-up page after a successful registration.
+    const registered = useLocation().state?.registered;
+    const [form, setForm] = useState(() => (registered ? { identifier: registered } : {}));
     const [error, setError] = useState(null);
     const [loading, setLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
 
     const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
-    const extractToken = (res) =>
-        res?.access_token ||
-        res?.data?.access_token ||
-        res?.accessToken;
-
-    const isLoginFailureResponse = (res) => {
-        if (!res) return true;
-        if (res?.status && res.status !== "SUCCESS") return true;
-        if (res?.error && !extractToken(res)) return true;
-        return false;
-    };
-
+    // Keycloak accepts either the username or the email as the login name.
     const submit = async () => {
         setError(null);
+
+        const identifier = (form.identifier || "").trim();
+        if (!identifier) {
+            setError("Please enter your username or email.");
+            return;
+        }
+        if (identifier.includes("@") && !isValidEmail(identifier)) {
+            setError("Please enter a valid email address.");
+            return;
+        }
+        if (!(form.password || "")) {
+            setError("Please enter your password.");
+            return;
+        }
+
         setLoading(true);
-
         try {
-            const identifier = (form.identifier || "").trim();
-            if (!identifier) {
-                setError("Please enter your username or email.");
-                setLoading(false);
-                return;
-            }
-
-            if (identifier.includes("@") && !isValidEmail(identifier)) {
-                setError("Please enter a valid email address.");
-                setLoading(false);
-                return;
-            }
-
-            if (!(form.password || "")) {
-                setError("Please enter your password.");
-                setLoading(false);
-                return;
-            }
-
-            const password = form.password || "";
-            let res;
-            let lastErr;
-
-            if (identifier.includes("@")) {
-                try {
-                    res = await loginUser({ email: identifier, password });
-                    console.log("LOGIN RESPONSE (email):", res);
-                } catch (e) {
-                    lastErr = e;
-                    console.log("LOGIN ERROR (email):", e);
-                }
-
-                if (!res || isLoginFailureResponse(res)) {
-                    try {
-                        const retryRes = await loginUser({ username: identifier, password });
-                        console.log("LOGIN RESPONSE (fallback username):", retryRes);
-                        if (!isLoginFailureResponse(retryRes)) {
-                            res = retryRes;
-                            lastErr = undefined;
-                        }
-                    } catch (e) {
-                        lastErr = e;
-                        console.log("LOGIN ERROR (fallback username):", e);
-                    }
-                }
-            } else {
-                try {
-                    res = await loginUser({ username: identifier, password });
-                    console.log("LOGIN RESPONSE (username):", res);
-                } catch (e) {
-                    lastErr = e;
-                    console.log("LOGIN ERROR (username):", e);
-                }
-            }
-
-            if (!res) {
-                const msg = (lastErr?.message || "").toString();
-                const normalized = msg === "INVALID_CREDENTIALS" ? "Invalid username/email or password." : msg;
-                setError(normalized || "Login failed. Please try again.");
-                setLoading(false);
-                return;
-            }
-
-            if (isLoginFailureResponse(res)) {
-                setError(res?.error || "Invalid username/email or password.");
-                setLoading(false);
-                return;
-            }
-
-            const token = extractToken(res);
-
-            if (!token) {
-                setError("Login failed. Please check your credentials and try again.");
-                setLoading(false);
-                return;
-            }
-
-            const expiresIn = res.expires_in ?? res?.data?.expires_in ?? res?.expiresIn ?? "";
-            const refreshToken = res.refresh_token ?? res?.data?.refresh_token ?? res?.refreshToken ?? "";
-
-            const params = new URLSearchParams();
-            params.set("access_token", token);
-            if (expiresIn) params.set("expires_in", String(expiresIn));
-            if (refreshToken) params.set("refresh_token", refreshToken);
-
-            const redirectUrl = `${APP_URL}/app#${params.toString()}`;
-            window.location.href = redirectUrl;
+            await passwordLogin(identifier, form.password);
+            navigate("/app", { replace: true });
         } catch (err) {
             setError(err.message || "Login failed. Please try again.");
             setLoading(false);
@@ -151,6 +72,14 @@ export default function Login() {
                         Sign in to your account to continue.
                     </p>
 
+                    {registered && !error && (
+                        <div
+                            className="info-banner"
+                            style={{ backgroundColor: "var(--success-color, #27ae60)", color: "white", padding: "12px", borderRadius: "8px", marginBottom: "16px" }}
+                        >
+                            Account created. Sign in to continue.
+                        </div>
+                    )}
                     {error && <div className="error-message">{error}</div>}
 
                     <div className="form-group">
@@ -217,7 +146,7 @@ export default function Login() {
 
                     <div className="auth-link">
                         <p>
-                            No account? <a href="/register">Create one</a>
+                            No account? <Link to="/register">Create one</Link>
                         </p>
                     </div>
                 </div>

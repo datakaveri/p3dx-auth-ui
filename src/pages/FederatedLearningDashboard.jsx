@@ -1,10 +1,10 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
-import { DataOwnerForm, DP_VM_NAME_KEY } from "../components/RoleForms";
-import { getMyNotifications, getNotificationResponses, markNotificationRead, respondToNotification, notifyAzureSignIn } from "../api/auth";
+import { DP_VM_NAME_KEY } from "../components/RoleForms";
+import { getMyNotifications, getNotificationResponses, markNotificationRead, respondToNotification, notifyAzureSignIn, subscribeToNotifications } from "../api/auth";
 import { signInProviderWithAzure, completeProviderAzureSignIn } from "../api/azureAuth";
 import FLSessionStartModal from "../components/FLSessionStartModal";
-import { BACKEND_URL } from "../config";
+import { listMyInfraPolicies } from "../api/policies";
 
 function parseNotificationPayload(n) {
   try {
@@ -64,7 +64,23 @@ export default function FederatedLearningDashboard() {
   };
 
   const roles = useMemo(() => user?.roles || [], [user]);
-  const hasDataProvider = roles.includes("data-provider");
+  const hasDataProvider = roles.includes("provider");
+  // A data provider runs its own training VM, so taking part in an FL
+  // session also needs them to be an infra provider: the infra_provider role
+  // plus a filled infra-provider form (enforced by gov_layer, see its
+  // fl_participants.go); without both they're not listed or invitable.
+  const hasInfraRole = roles.includes("infra_provider");
+  // null while loading.
+  const [hasInfraRegistration, setHasInfraRegistration] = useState(null);
+  useEffect(() => {
+    if (!token || !hasDataProvider || !hasInfraRole) return;
+    let cancelled = false;
+    listMyInfraPolicies(token)
+      .then(res => { if (!cancelled) setHasInfraRegistration(Array.isArray(res?.data) && res.data.length > 0); })
+      .catch(() => { if (!cancelled) setHasInfraRegistration(false); });
+    return () => { cancelled = true; };
+  }, [token, hasDataProvider, hasInfraRole]);
+  const canJoinFl = hasDataProvider && hasInfraRole && hasInfraRegistration === true;
   // No separate "output-owner" role to request/approve — any logged-in user
   // who isn't a data-provider gets the full owner workflow.
   const hasOutputOwner = !hasDataProvider;
@@ -310,39 +326,27 @@ export default function FederatedLearningDashboard() {
   // Real-time notifications via Server-Sent Events. The server sends a
   // {type:'notification'} nudge when a notification is created for this user;
   // we then refetch the canonical list, so the dashboard updates with no manual
-  // refresh. EventSource reconnects automatically after transient drops.
+  // refresh. subscribeToNotifications reconnects after transient drops.
   useEffect(() => {
     if (!hasDataProvider || !user?.username) return;
 
-    const url = `${BACKEND_URL}/p3dx/notifications/stream?username=${encodeURIComponent(user.username)}`;
-    const es = new EventSource(url);
+    const close = subscribeToNotifications({
+      onOpen: () => setWsConnected(true),
+      onNotification: () => {
+        fetchNotifications(true);
+        setShowNotifications(true);
+      },
+      // It retries on its own; just reflect the transient state.
+      onError: () => setWsConnected(false),
+    });
 
-    es.onopen = () => setWsConnected(true);
-
-    es.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        if (message.type === 'notification') {
-          fetchNotifications(true);
-          setShowNotifications(true);
-        }
-      } catch (err) {
-        console.error('[SSE] Error parsing message:', err);
-      }
-    };
-
-    es.onerror = () => {
-      // EventSource retries on its own; just reflect the transient state.
-      setWsConnected(false);
-    };
-
-    wsRef.current = es;
+    wsRef.current = close;
 
     // Initial load of existing notifications.
     fetchNotifications();
 
     return () => {
-      es.close();
+      close();
       wsRef.current = null;
     };
   }, [token, hasDataProvider, user?.username]);
@@ -424,7 +428,62 @@ export default function FederatedLearningDashboard() {
         </div>
       </div>
 
-      {hasDataProvider && <DataOwnerForm user={user} token={token} />}
+      {hasDataProvider && !hasInfraRole && (
+        <div className="card" style={{ marginBottom: "18px", borderLeft: "4px solid #e67e22" }}>
+          <h3 className="section-title" style={{ marginTop: 0 }}>Infra Provider Role Required</h3>
+          <div style={{ color: "var(--text-light)", fontSize: "14px", marginBottom: "12px" }}>
+            To take part in federated learning sessions you must also be an <strong>infra-provider</strong>,
+            because training runs on a VM you provide. Request the role, then fill the infrastructure form.
+            Until then, output owners can't select you for a session.
+          </div>
+          <button
+            className="btn btn-secondary"
+            type="button"
+            style={{ width: "auto" }}
+            onClick={() => navigate("/app/role-request")}
+          >
+            Request Infra Provider Role
+          </button>
+        </div>
+      )}
+
+      {hasDataProvider && hasInfraRole && hasInfraRegistration === false && (
+        <div className="card" style={{ marginBottom: "18px", borderLeft: "4px solid #e67e22" }}>
+          <h3 className="section-title" style={{ marginTop: 0 }}>Infrastructure Form Required</h3>
+          <div style={{ color: "var(--text-light)", fontSize: "14px", marginBottom: "12px" }}>
+            To take part in federated learning sessions, register the infrastructure you'll train on.
+            Until then, output owners can't select you for a session.
+          </div>
+          <button
+            className="btn btn-primary"
+            type="button"
+            style={{ width: "auto" }}
+            onClick={() => navigate("/app/services/infra-policy", { state: { returnTo: location.pathname } })}
+          >
+            Fill Infrastructure Form
+          </button>
+        </div>
+      )}
+
+      {/* The FL-only Data Provider Form is gone: Upload Dataset (PolicyForm.jsx)
+          is now the single data-provider form for every service. */}
+      {hasDataProvider && (
+        <div className="card" style={{ marginBottom: "18px" }}>
+          <h3 className="section-title" style={{ marginTop: 0 }}>Your Dataset</h3>
+          <div style={{ color: "var(--text-light)", fontSize: "14px", marginBottom: "12px" }}>
+            Register your dataset, access policy and compute details on the Upload Dataset page.
+            Output owners can then find you and invite you to federated learning sessions.
+          </div>
+          <button
+            className="btn btn-primary"
+            type="button"
+            style={{ width: "auto" }}
+            onClick={() => navigate("/app/services/policies", { state: { returnTo: location.pathname } })}
+          >
+            Upload Dataset
+          </button>
+        </div>
+      )}
 
       {!hasDataProvider && (
         <div className="card" style={{ marginBottom: "18px" }}>
@@ -449,16 +508,16 @@ export default function FederatedLearningDashboard() {
           <h3 className="section-title" style={{ marginTop: 0 }}>Output Owner</h3>
           <div style={{ color: "var(--text-light)", fontSize: "14px", marginBottom: "12px" }}>
             {hasOutputOwner
-              ? "Configure a federated learning session and select the data providers to invite."
+              ? "Pick the datasets to train on in the Catalogue, then configure the federated learning session."
               : "Fill in the federated learning configuration form."}
           </div>
           <button
             className="btn btn-primary"
             type="button"
             style={{ width: "auto" }}
-            onClick={() => navigate("/app/services/fl/federated-learning")}
+            onClick={() => navigate("/app/services/run", { state: { technique: "FL", returnTo: location.pathname } })}
           >
-            Open Federated Learning Configuration
+            Choose Datasets in Catalogue
           </button>
         </div>
       )}
@@ -646,6 +705,10 @@ export default function FederatedLearningDashboard() {
                     // rest get participation_update with the updated list.
                     const isUpdate = payload.kind === "participation_update";
                     const isRemovedNotice = payload.kind === "removed_from_session";
+                    // gov_layer's Final Roster (fl_session.go notifyRoster) also
+                    // sends the session contract for signing, which happens on
+                    // the Contracts page with the provider's key.
+                    const isSignRequest = payload.kind === "final_roster";
                     const finalWarning = (isRequest || isUpdate) && !!payload.final_warning;
                     // Both a request and an updated-list notice ask willing / not willing.
                     const isAnswerable = isRequest || isUpdate;
@@ -690,6 +753,16 @@ export default function FederatedLearningDashboard() {
                           <div style={{ fontSize: "0.8rem", color: "var(--primary-color, #6c63ff)", marginTop: "4px" }}>
                             From: {ownerLabel}
                           </div>
+                          {isSignRequest && (
+                            <button
+                              type="button"
+                              className="btn btn-primary"
+                              style={{ width: "auto", marginTop: "8px", padding: "6px 14px", fontSize: "0.8rem" }}
+                              onClick={() => navigate("/app/services/contracts", { state: { returnTo: location.pathname } })}
+                            >
+                              Sign Contract
+                            </button>
+                          )}
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                           {!isAnswerable && !notification.read && (
@@ -868,7 +941,8 @@ export default function FederatedLearningDashboard() {
                           <div style={{ display: "flex", gap: "8px" }}>
                             <button
                               onClick={() => handleRespond(notification.id, "accepted")}
-                              disabled={respondingId === notification.id}
+                              disabled={respondingId === notification.id || !canJoinFl}
+                              title={canJoinFl ? undefined : "You need the infra-provider role and a filled infrastructure form to take part"}
                               style={{
                                 padding: "6px 14px", fontSize: "0.8rem",
                                 backgroundColor: "var(--success-color, #27ae60)", color: "white",

@@ -8,9 +8,9 @@ export default function UserDashboard() {
   const location = useLocation();
 
   const roles = useMemo(() => user?.roles || [], [user]);
-  const hasApplicationProvider = roles.includes("application-provider");
-  const hasDataProvider = roles.includes("data-provider");
-  const hasInfraProvider = roles.includes("infra-provider");
+  const hasApplicationProvider = roles.includes("application_provider");
+  const hasDataProvider = roles.includes("provider");
+  const hasInfraProvider = roles.includes("infra_provider");
 
   // data-provider and infra-provider generate their key pair here in the
   // browser (see api/keyPair.js; KEY_PAIR_ROLES in keyPair.service.js) — the
@@ -63,7 +63,7 @@ export default function UserDashboard() {
   // to contract generation today; /dp has no technique value to pass yet.
   const technique = isSMPC ? "SMPC" : isTEE ? "TEE" : undefined;
 
-  const DISPLAY_ROLES = ["user", "application-provider", "data-provider", "infra-provider"];
+  const DISPLAY_ROLES = ["consumer", "application_provider", "provider", "infra_provider"];
   const displayRoles = roles.filter(r => DISPLAY_ROLES.includes(r));
 
   const serviceLabel = useMemo(() => {

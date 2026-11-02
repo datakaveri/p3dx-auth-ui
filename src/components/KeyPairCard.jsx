@@ -20,6 +20,7 @@ export default function KeyPairCard({ token, roleName }) {
     try {
       const res = await getKeyPairStatus(token, roleName);
       if (res?.status === "SUCCESS") setStatus(res);
+      else setError(`Couldn't load your key status (${res?.error || "unknown error"})`);
     } catch (e) {
       setError(e?.message || "Couldn't load your key status");
     }

@@ -88,8 +88,8 @@ const STATUSES = [
 export default function MyAuditDashboard() {
   const { user, token } = useOutletContext();
   const roles = useMemo(() => user?.roles || [], [user]);
-  const hasDataProvider = roles.includes("data-provider");
-  const isProvider = hasDataProvider || roles.includes("infra-provider");
+  const hasDataProvider = roles.includes("provider");
+  const isProvider = hasDataProvider || roles.includes("infra_provider");
 
   const navigate = useNavigate();
   const location = useLocation();

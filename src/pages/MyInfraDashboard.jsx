@@ -13,7 +13,7 @@ const PLATFORM_LABELS = { azure: "Azure", gcp: "GCP", aws: "AWS" };
 export default function MyInfraDashboard() {
   const { user, token } = useOutletContext();
   const roles = useMemo(() => user?.roles || [], [user]);
-  const hasInfraProvider = roles.includes("infra-provider");
+  const hasInfraProvider = roles.includes("infra_provider");
 
   const navigate = useNavigate();
   const location = useLocation();

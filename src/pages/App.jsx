@@ -22,7 +22,7 @@ export default function App() {
 
   const token = sessionStorage.getItem("access_token");
   const roles = user?.roles || [];
-  const isAdmin = roles.includes("admin");
+  const isAdmin = roles.includes("cos_admin");
 
   const formatDateTime = value => {
     if (!value) return "";
