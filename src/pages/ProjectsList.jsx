@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
-import { useOutletContext } from "react-router-dom";
+import { useNavigate, useOutletContext } from "react-router-dom";
 import { getMyProjects, restartFlSession, getContractByProject, getSessionContractSignatures, queueRestartedFlSession } from "../api/auth";
 import ContractPreviewModal from "../components/ContractPreviewModal";
 import ContractSignatureStatus from "../components/ContractSignatureStatus";
 
 // Projects page (see AppShell.jsx sidebar "Projects" link, under "Services").
-// fl-orchestrator sees every project; anyone else sees only their own (as
-// output owner) - gov_layer (GET /me/projects) does that filtering, this
-// page just renders whatever list comes back. Deliberately shows only the
+// fl-orchestrator sees every project; anyone else sees the ones they own the
+// output of, plus the ones they are a data provider on - gov_layer
+// (GET /me/projects) does that filtering, this page just renders whatever
+// list comes back. On a data provider's rows only "View run" (their own VM's
+// run page) and "View Contract" are offered. Deliberately shows only the
 // project number and its data providers, no owner name (see FL_Orchestrator.jsx
 // for the pending-request view, which is a different list).
 export default function ProjectsList() {
@@ -28,7 +30,42 @@ export default function ProjectsList() {
   const [contractError, setContractError] = useState(null);
   const [viewedContract, setViewedContract] = useState(null);
 
+  const navigate = useNavigate();
   const isOrchestrator = (user?.roles || []).includes("fl-orchestrator");
+
+  // The list is newest first, so the first row seen per session is its newest.
+  const newestRowIds = new Set();
+  {
+    const seen = new Set();
+    for (const p of projects) {
+      if (p.session_id && !seen.has(p.session_id)) {
+        seen.add(p.session_id);
+        newestRowIds.add(p.project_id);
+      }
+    }
+  }
+  // The owner is whoever started the session (gov_layer's output_owner_username).
+  // Legacy rows without it fall back to "not one of the data providers".
+  const isOwner = (p) =>
+    Boolean(user?.username) &&
+    (p.output_owner_username
+      ? p.output_owner_username === user.username
+      : !(p.data_provider_usernames || []).includes(user.username));
+
+  // A row where the caller takes part as a data provider, not as its owner.
+  const isProviderRow = (p) =>
+    !isOwner(p) && Boolean(user?.username) && (p.data_provider_usernames || []).includes(user.username);
+
+  const handleViewRun = (p) => {
+    const sid = encodeURIComponent(p.session_id);
+    navigate(isOwner(p) ? `/app/services/fl/run/${sid}` : `/app/services/fl/orchestrator/${sid}`);
+  };
+
+  const handleViewOutput = (p) => {
+    navigate(`/app/services/fl/federated-learning/output/${encodeURIComponent(p.session_id)}`, {
+      state: { sessionName: `Project ${p.project_id}`, from: "/app/projects" },
+    });
+  };
 
   useEffect(() => {
     if (!token) return;
@@ -154,7 +191,21 @@ export default function ProjectsList() {
                     >
                       {contractLoadingId === p.project_id ? "Loading..." : "View Contract"}
                     </button>
-                    {!isOrchestrator && (
+                    {!isOrchestrator && newestRowIds.has(p.project_id) && (
+                      <>
+                        <button className="btn btn-secondary" type="button" style={{ width: "auto" }} onClick={() => handleViewRun(p)}>
+                          View run
+                        </button>
+                        {/* Only the output owner who started the session sees its output
+                            (gov_layer also gates it); providers never get the button. */}
+                        {isOwner(p) && (
+                          <button className="btn btn-secondary" type="button" style={{ width: "auto" }} onClick={() => handleViewOutput(p)}>
+                            View output
+                          </button>
+                        )}
+                      </>
+                    )}
+                    {!isOrchestrator && !isProviderRow(p) && (
                       <button
                         className="btn btn-secondary"
                         type="button"

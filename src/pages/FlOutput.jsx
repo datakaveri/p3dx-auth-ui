@@ -53,7 +53,7 @@ export default function FlOutput() {
           </div>
         </div>
         <div className="page-header-actions">
-          <button className="btn btn-secondary" style={{ width: "auto" }} type="button" onClick={() => navigate(FL_PAGE)}>
+          <button className="btn btn-secondary" style={{ width: "auto" }} type="button" onClick={() => navigate(state?.from || FL_PAGE)}>
             Back
           </button>
           {ready && (
@@ -76,7 +76,7 @@ export default function FlOutput() {
         <div className="fl-section-sub" style={{ marginTop: "20px" }}>Loading session output&hellip;</div>
       ) : !ready ? (
         <div className="fl-section-sub" style={{ marginTop: "20px" }}>
-          Output not collected yet &mdash; go back to Federated Learning and use Fetch output.
+          Output not available yet. It appears here once the session has finished and its output has been collected.
         </div>
       ) : (
         <FlOutputView
