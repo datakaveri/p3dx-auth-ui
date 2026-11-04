@@ -218,7 +218,7 @@ export async function notifyRoster(selectedProviders, willingProviders, outputOw
 // Queues the request for the fl-orchestrator operator (see
 // pages/fl_orchestrator/FL_Orchestrator.jsx) rather than starting it directly - the owner
 // just gets a "requested, waiting" result back.
-export async function queueFlSession(submissionId, participatingProviders, vmName, token) {
+export async function queueFlSession(submissionId, participatingProviders, token) {
   const res = await authFetch(`${GOV_URL}/me/fl/queue-session`, {
     method: "POST",
     headers: {
@@ -228,7 +228,6 @@ export async function queueFlSession(submissionId, participatingProviders, vmNam
     body: JSON.stringify({
       submission_id: submissionId,
       participating_providers: participatingProviders,
-      vm_name: vmName,
     }),
   });
   const data = await parseJsonSafe(res);
