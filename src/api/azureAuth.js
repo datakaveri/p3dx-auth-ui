@@ -6,7 +6,7 @@ const AZURE_TENANT_ID = import.meta.env.VITE_AZURE_TENANT_ID;
 // Test-only: when VITE_AZURE_DRY_RUN=true the Microsoft sign-ins are skipped
 // entirely. The backend never reads these Azure tokens (they only gate the
 // UI), so the rest of the flow works unchanged without an Azure account.
-const AZURE_DRY_RUN = import.meta.env.VITE_AZURE_DRY_RUN === "true";
+export const AZURE_DRY_RUN = import.meta.env.VITE_AZURE_DRY_RUN === "true";
 
 const msalConfig = {
   auth: {

@@ -417,7 +417,46 @@ export async function getNotificationResponses(token) {
 // Returns a function that closes the stream.
 const STREAM_RETRY_MS = 5000;
 
-export function subscribeToNotifications({ onOpen, onNotification, onError }) {
+// The stream is held open for as long as a page is, and browsers allow only
+// 6 HTTP/1.1 connections per host across ALL tabs — one stream per tab soon
+// starves every other gov_layer call. So only one tab per user holds the
+// stream (a Web Lock picks it; the next tab takes over when it closes) and
+// relays each nudge to the other tabs over a BroadcastChannel.
+export function subscribeToNotifications({ key = "default", onOpen, onNotification, onError }) {
+  if (typeof navigator === "undefined" || !navigator.locks || typeof BroadcastChannel === "undefined") {
+    return openNotificationStream({ onOpen, onNotification, onError });
+  }
+  const name = `p3dx-notification-stream:${key}`;
+  const channel = new BroadcastChannel(name);
+  channel.onmessage = (e) => {
+    if (e.data === "notification") onNotification?.();
+  };
+  const lockAbort = new AbortController();
+  let closeStream = null;
+  let releaseLock = null;
+  navigator.locks
+    .request(name, { signal: lockAbort.signal }, () =>
+      new Promise((resolve) => {
+        releaseLock = resolve;
+        closeStream = openNotificationStream({
+          onOpen,
+          onNotification: () => {
+            onNotification?.();
+            channel.postMessage("notification");
+          },
+          onError,
+        });
+      }))
+    .catch(() => {}); // AbortError: closed while still waiting for the lock
+  return () => {
+    lockAbort.abort();
+    closeStream?.();
+    releaseLock?.();
+    channel.close();
+  };
+}
+
+function openNotificationStream({ onOpen, onNotification, onError }) {
   let closed = false;
   let controller = null;
   let retryTimer = null;
