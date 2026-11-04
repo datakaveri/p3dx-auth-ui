@@ -1,67 +1,21 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
-import { DP_VM_NAME_KEY } from "../components/RoleForms";
-import { getMyNotifications, getNotificationResponses, markNotificationRead, respondToNotification, notifyAzureSignIn, subscribeToNotifications } from "../api/auth";
-import { signInProviderWithAzure, completeProviderAzureSignIn } from "../api/azureAuth";
-import FLSessionStartModal from "../components/FLSessionStartModal";
+import { getNotificationResponses } from "../api/auth";
 import { listMyInfraPolicies } from "../api/policies";
-
-function parseNotificationPayload(n) {
-  try {
-    return typeof n?.payload === "string" ? JSON.parse(n.payload || "{}") : (n?.payload || {});
-  } catch {
-    return {};
-  }
-}
+import "../styles/notifications.css";
 
 export default function FederatedLearningDashboard() {
   const { user, token } = useOutletContext();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const wsRef = useRef(null);
-
-  const [actionError, setActionError] = useState(null);
-
-  // Notifications for data providers
-  const [notifications, setNotifications] = useState([]);
-  const [notificationsLoading, setNotificationsLoading] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [wsConnected, setWsConnected] = useState(false);
-  // Closed messages, both lists — dismiss is local-only (not persisted), so a
-  // closed message just disappears from view here and comes back on reload.
-  const [dismissedIds, setDismissedIds] = useState(() => new Set());
-
-  // Messages for output owners: notifications they've sent, plus each
-  // recipient's response.
+  // Notifications (the inbox) now live in the shell's bell + panel; this page
+  // keeps only the output owner's view of the messages they have sent.
   const [sentNotifications, setSentNotifications] = useState([]);
   const [sentNotificationsLoading, setSentNotificationsLoading] = useState(false);
   const [showSentNotifications, setShowSentNotifications] = useState(false);
-  // Participation-consent: per-notification reason draft + in-flight respond id.
-  const [responseDrafts, setResponseDrafts] = useState({});
-  const [respondingId, setRespondingId] = useState(null);
-  // FL-session-start sign-in modal: auto-opened as soon as an unread
-  // "fl_session_start" notification is seen (matching the owner side, where
-  // starting a session pops the Azure sign-in dialog immediately) - it can
-  // also be reopened manually via "Sign in with Azure" on the notification
-  // (see the notification list below and FLSessionStartModal).
-  const [sessionStartModal, setSessionStartModal] = useState({ open: false, notification: null });
-  const [azureSignInResult, setAzureSignInResult] = useState(null);
-  const [signingIn, setSigningIn] = useState(false);
-  // Notification ids we've already auto-popped the modal for, so a
-  // still-unread notification doesn't reopen it on every poll/refetch.
-  const autoOpenedSessionStartIds = useRef(new Set());
-  // Editable right in the sign-in popup (see FLSessionStartModal) so naming
-  // the VM can't be missed by skipping the separate Data Provider Form -
-  // both read/write the same DP_VM_NAME_KEY sessionStorage entry.
-  const [dpVmName, setDpVmNameState] = useState(
-    () => sessionStorage.getItem(DP_VM_NAME_KEY) || user?.username || ""
-  );
-  const setDpVmName = (value) => {
-    setDpVmNameState(value);
-    sessionStorage.setItem(DP_VM_NAME_KEY, value);
-  };
+  // Closing a sent message is local-only (it comes back on reload).
+  const [dismissedIds, setDismissedIds] = useState(() => new Set());
 
   const roles = useMemo(() => user?.roles || [], [user]);
   const hasDataProvider = roles.includes("provider");
@@ -80,7 +34,6 @@ export default function FederatedLearningDashboard() {
       .catch(() => { if (!cancelled) setHasInfraRegistration(false); });
     return () => { cancelled = true; };
   }, [token, hasDataProvider, hasInfraRole]);
-  const canJoinFl = hasDataProvider && hasInfraRole && hasInfraRegistration === true;
   // No separate "output-owner" role to request/approve — any logged-in user
   // who isn't a data-provider gets the full owner workflow.
   const hasOutputOwner = !hasDataProvider;
@@ -93,66 +46,6 @@ export default function FederatedLearningDashboard() {
     if (path.includes("/services/dp")) return "Differential Privacy";
     return "Service";
   }, [location.pathname]);
-
-  // Fetch notifications for data providers. `isLiveUpdate` distinguishes a
-  // fresh SSE push (a notification that just landed while this page is open)
-  // from every other call (initial mount, manual refresh) - only a live push
-  // is allowed to auto-pop the sign-in modal, otherwise a session-start
-  // invite that's simply still unread from earlier would re-open the popup
-  // on every page load/refresh instead of once, right after it actually happens.
-  const fetchNotifications = async (isLiveUpdate = false) => {
-    if (!token || !hasDataProvider) return;
-    setNotificationsLoading(true);
-    try {
-      console.log('[DEBUG] Fetching notifications for user:', user?.username, 'user object:', JSON.stringify({
-        sub: user?.sub,
-        id: user?.id,
-        userId: user?.userId,
-        keycloakId: user?.keycloakId,
-        preferred_username: user?.preferred_username
-      }));
-      const res = await getMyNotifications(token);
-      console.log('[DEBUG] Notifications response:', res);
-      if (res?.status === "SUCCESS") {
-        const list = Array.isArray(res.notifications) ? res.notifications : [];
-        setNotifications(list);
-        setUnreadCount(res.unread_count || 0);
-
-        const unreadSessionStarts = list.filter(
-          (n) => !n.read && parseNotificationPayload(n).kind === "fl_session_start"
-        );
-        if (isLiveUpdate) {
-          // Pop the Azure sign-in dialog for a session-start request that just
-          // arrived — but only ones not already accounted for, so a live push
-          // triggered by some other notification doesn't reopen the popup for
-          // an invite the provider already saw and dismissed earlier.
-          const pending = unreadSessionStarts.find((n) => !autoOpenedSessionStartIds.current.has(n.id));
-          if (pending) {
-            // Marked seen right away so a poll landing during the delay below
-            // can't queue up a second pop for the same invite; the popup
-            // itself is deliberately held for a few seconds after the owner's
-            // sign-in so it doesn't feel like it's firing in the same instant.
-            autoOpenedSessionStartIds.current.add(pending.id);
-            setTimeout(() => {
-              setAzureSignInResult(null);
-              setSessionStartModal({ open: true, notification: pending });
-            }, 5000);
-          }
-        } else {
-          // Not a live push (initial load / manual refresh): these invites
-          // predate this page view, so mark them seen without popping —
-          // otherwise a still-unread invite from earlier would re-open the
-          // modal every time the dashboard is loaded or refreshed.
-          unreadSessionStarts.forEach((n) => autoOpenedSessionStartIds.current.add(n.id));
-        }
-      }
-    } catch (err) {
-      console.warn("Failed to fetch notifications:", err);
-    } finally {
-      setNotificationsLoading(false);
-    }
-  };
-
   // Fetch this output owner's own sent messages (with recipients' responses).
   const fetchSentNotifications = async () => {
     if (!token || !hasOutputOwner) return;
@@ -174,13 +67,10 @@ export default function FederatedLearningDashboard() {
     fetchSentNotifications();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, hasOutputOwner]);
-
-  // Close one message — local-only, just hides it from this view.
   const handleDismiss = (notificationId) => {
     setDismissedIds(prev => new Set(prev).add(notificationId));
   };
 
-  // Close every currently-visible message in one list at once.
   const handleClearAll = (ids) => {
     setDismissedIds(prev => {
       const next = new Set(prev);
@@ -189,191 +79,6 @@ export default function FederatedLearningDashboard() {
     });
   };
 
-  // Shows the success banner, tells the output owner (best-effort - this
-  // shouldn't block showing success just because the notify call failed),
-  // and marks the triggering notification read. Shared by the inline
-  // (silent-token) path below and by the post-redirect resume effect.
-  const finishAzureSignIn = async (account, ctx) => {
-    setAzureSignInResult({ ok: true, text: `Signed in as ${account?.username || "your Azure account"}.` });
-    const freshToken = sessionStorage.getItem('access_token') || token;
-    if (ctx?.ownerUsername && freshToken) {
-      try {
-        await notifyAzureSignIn(ctx.ownerUsername, ctx.submissionId, freshToken);
-      } catch (err) {
-        console.warn("Failed to notify owner of Azure sign-in:", err);
-      }
-    }
-    if (ctx?.notificationId) {
-      handleMarkRead(ctx.notificationId);
-    }
-    // Send this provider on to the FL Orchestrator page to create their own
-    // VM (backend device-code Azure login + Terraform, see
-    // vmAutoProvision.service.js) - kept off this page so it stays focused
-    // on the FL workflow itself. Named after whatever they typed into the
-    // "VM Name" field on their Data Provider Form (see DP_VM_NAME_KEY /
-    // RoleForms.jsx) - falls back to their account name if they never
-    // touched that form.
-    const vmName = sessionStorage.getItem(DP_VM_NAME_KEY) || account?.username || user?.username;
-    if (vmName) {
-      navigate('/app/services/fl/orchestrator', { state: { role: 'data-provider', vmName, submissionId: ctx?.submissionId } });
-    }
-  };
-
-  // Resume after a full-page Azure redirect. signInProviderWithAzure uses
-  // loginRedirect rather than a popup (see azureAuth.js), so a fresh sign-in
-  // finishes here, on the next page load, rather than inline below.
-  useEffect(() => {
-    (async () => {
-      try {
-        const resumed = await completeProviderAzureSignIn();
-        if (resumed) {
-          setSigningIn(false);
-          // The redirect reloaded the page, so the modal that was open before
-          // navigating away is gone — reopen it with a stand-in notification
-          // (built from the stashed context) so the sign-in confirmation and
-          // VM provisioning progress are actually visible, not just fired
-          // into state nobody's looking at.
-          setSessionStartModal({
-            open: true,
-            notification: { id: resumed.context?.notificationId, message: "You've signed in with Azure for this FL session." },
-          });
-          await finishAzureSignIn(resumed.account, resumed.context);
-        }
-      } catch (err) {
-        setAzureSignInResult({ ok: false, text: `Azure sign-in failed: ${err?.message || String(err)}` });
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Provider signs in with their own Azure account in response to an
-  // FL-session-start invite - from the popup or from the "Go to session" button
-  // in the Notifications list. Separate identity from the output owner's Azure
-  // login used for ARM/Terraform provisioning.
-  const joinSession = async (notification) => {
-    setSigningIn(true);
-    const payload = parseNotificationPayload(notification);
-    const context = {
-      ownerUsername: payload.output_owner_id,
-      submissionId: payload.submission_id,
-      notificationId: notification?.id,
-    };
-    // finishAzureSignIn reads the VM name from sessionStorage; persist the
-    // current Data Provider Form value so it isn't lost when the popup (which
-    // normally writes it) was never opened.
-    setDpVmName(dpVmName);
-    try {
-      const result = await signInProviderWithAzure(context);
-      if (result.redirected) return; // page is navigating to Microsoft
-      await finishAzureSignIn(result.account, context);
-    } catch (err) {
-      const text = `Azure sign-in failed: ${err?.message || String(err)}`;
-      setAzureSignInResult({ ok: false, text });
-      // The modal shows azureSignInResult itself; from the list, use the page-level banner.
-      if (!sessionStartModal.open) setActionError(text);
-    } finally {
-      setSigningIn(false);
-    }
-  };
-
-  // Mark notification as read
-  const handleMarkRead = async (notificationId) => {
-    if (!token) return;
-    try {
-      await markNotificationRead(notificationId, token);
-      // Update local state
-      setNotifications(prev =>
-        prev.map(n =>
-          n.id === notificationId ? { ...n, read: true, read_at: new Date().toISOString() } : n
-        )
-      );
-      setUnreadCount(prev => Math.max(0, prev - 1));
-    } catch (err) {
-      console.warn("Failed to mark notification as read:", err);
-    }
-  };
-
-  // Answer a participation request: "accepted" or "declined", with an optional
-  // reason that goes back to the output owner.
-  // finalWarning: the provider already declined once for this session, so
-  // declining again removes them from it — confirm first.
-  const handleRespond = async (notificationId, response, finalWarning = false) => {
-    if (!token) return;
-    if (response === "declined" && finalWarning &&
-        !window.confirm("You already declined once for this session. If you decline again, you will be removed from this session. Decline anyway?")) {
-      return;
-    }
-    const message = (responseDrafts[notificationId] || "").trim();
-    setRespondingId(notificationId);
-    try {
-      await respondToNotification(notificationId, response, message, token);
-      setNotifications(prev =>
-        prev.map(n =>
-          n.id === notificationId
-            ? { ...n, response, response_message: message, responded_at: new Date().toISOString(), read: true }
-            : n
-        )
-      );
-      setUnreadCount(prev => Math.max(0, prev - 1));
-    } catch (err) {
-      console.warn("Failed to send participation response:", err);
-      setActionError(err.message || "Failed to send participation response");
-    } finally {
-      setRespondingId(null);
-    }
-  };
-
-  // Real-time notifications via Server-Sent Events. The server sends a
-  // {type:'notification'} nudge when a notification is created for this user;
-  // we then refetch the canonical list, so the dashboard updates with no manual
-  // refresh. subscribeToNotifications reconnects after transient drops.
-  useEffect(() => {
-    if (!hasDataProvider || !user?.username) return;
-
-    const close = subscribeToNotifications({
-      onOpen: () => setWsConnected(true),
-      onNotification: () => {
-        fetchNotifications(true);
-        setShowNotifications(true);
-      },
-      // It retries on its own; just reflect the transient state.
-      onError: () => setWsConnected(false),
-    });
-
-    wsRef.current = close;
-
-    // Initial load of existing notifications.
-    fetchNotifications();
-
-    return () => {
-      close();
-      wsRef.current = null;
-    };
-  }, [token, hasDataProvider, user?.username]);
-
-  // "fl_session_start" invites are also kept in the list (with a "Go to
-  // session" button), not just the popup (see FLSessionStartModal above) - the
-  // popup only fires on a live push while on this page, so a provider who was
-  // elsewhere or reloaded would otherwise have no way to join.
-  const visibleNotifications = notifications.filter(n => !dismissedIds.has(n.id));
-  // Per session, only the newest willing/not-willing ask (a request or an
-  // updated list) can be answered; older ones are shown as replaced so the
-  // provider isn't left guessing which one to answer.
-  const latestAskBySession = useMemo(() => {
-    const latest = {};
-    notifications.forEach(n => {
-      const p = typeof n.payload === "string"
-        ? (() => { try { return JSON.parse(n.payload || "{}"); } catch { return {}; } })()
-        : (n.payload || {});
-      if (p.kind !== "participation_request" && p.kind !== "participation_update") return;
-      const key = p.submission_id || "";
-      const prev = latest[key];
-      if (!prev || new Date(n.created_at) > new Date(prev.created_at)) latest[key] = n;
-    });
-    const ids = {};
-    Object.entries(latest).forEach(([k, n]) => { ids[k] = n.id; });
-    return ids;
-  }, [notifications]);
   const visibleSentNotifications = sentNotifications.filter(n => !dismissedIds.has(n.id));
 
   return (
@@ -396,8 +101,6 @@ export default function FederatedLearningDashboard() {
           </button>
         </div>
       </div>
-
-      {actionError ? <div className="error-message" style={{ marginBottom: "18px" }}>{actionError}</div> : null}
 
       <div className="card" style={{ marginBottom: "18px" }}>
         <div className="grid">
@@ -467,60 +170,60 @@ export default function FederatedLearningDashboard() {
 
       {/* The FL-only Data Provider Form is gone: Upload Dataset (PolicyForm.jsx)
           is now the single data-provider form for every service. */}
-      {hasDataProvider && (
-        <div className="card" style={{ marginBottom: "18px" }}>
-          <h3 className="section-title" style={{ marginTop: 0 }}>Your Dataset</h3>
-          <div style={{ color: "var(--text-light)", fontSize: "14px", marginBottom: "12px" }}>
-            Register your dataset, access policy and compute details on the Upload Dataset page.
-            Output owners can then find you and invite you to federated learning sessions.
+      <div className="fl-card-grid">
+        {hasDataProvider ? (
+          <div className="card">
+            <h3 className="section-title" style={{ marginTop: 0 }}>Your Dataset</h3>
+            <div style={{ color: "var(--text-light)", fontSize: "14px", marginBottom: "12px" }}>
+              Register your dataset, access policy and compute details on the Upload Dataset page.
+              Output owners can then find you and invite you to federated learning sessions.
+            </div>
+            <button
+              className="btn btn-primary"
+              type="button"
+              style={{ width: "auto" }}
+              onClick={() => navigate("/app/services/policies", { state: { returnTo: location.pathname } })}
+            >
+              Upload Dataset
+            </button>
           </div>
-          <button
-            className="btn btn-primary"
-            type="button"
-            style={{ width: "auto" }}
-            onClick={() => navigate("/app/services/policies", { state: { returnTo: location.pathname } })}
-          >
-            Upload Dataset
-          </button>
-        </div>
-      )}
+        ) : (
+          <div className="card">
+            <h3 className="section-title" style={{ marginTop: 0 }}>Become a Data Provider</h3>
+            <div style={{ color: "var(--text-light)", fontSize: "14px", marginBottom: "12px" }}>
+              Want to contribute a dataset to federated learning sessions instead? Request the{" "}
+              <strong>data-provider</strong> role.
+            </div>
+            <button
+              className="btn btn-secondary"
+              type="button"
+              style={{ width: "auto" }}
+              onClick={() => navigate("/app/role-request")}
+            >
+              Request Data Provider Role
+            </button>
+          </div>
+        )}
 
-      {!hasDataProvider && (
-        <div className="card" style={{ marginBottom: "18px" }}>
-          <h3 className="section-title" style={{ marginTop: 0 }}>Become a Data Provider</h3>
-          <div style={{ color: "var(--text-light)", fontSize: "14px", marginBottom: "12px" }}>
-            Want to contribute a dataset to federated learning sessions instead? Request the{" "}
-            <strong>data-provider</strong> role.
+        {canSeeOutputOwnerForm && (
+          <div className="card">
+            <h3 className="section-title" style={{ marginTop: 0 }}>Output Owner</h3>
+            <div style={{ color: "var(--text-light)", fontSize: "14px", marginBottom: "12px" }}>
+              {hasOutputOwner
+                ? "Pick the datasets to train on in the Catalogue, then configure the federated learning session."
+                : "Fill in the federated learning configuration form."}
+            </div>
+            <button
+              className="btn btn-primary"
+              type="button"
+              style={{ width: "auto" }}
+              onClick={() => navigate("/app/services/run", { state: { technique: "FL", returnTo: location.pathname } })}
+            >
+              Choose Datasets in Catalogue
+            </button>
           </div>
-          <button
-            className="btn btn-secondary"
-            type="button"
-            style={{ width: "auto" }}
-            onClick={() => navigate("/app/role-request")}
-          >
-            Request Data Provider Role
-          </button>
-        </div>
-      )}
-
-      {canSeeOutputOwnerForm && (
-        <div className="card" style={{ marginBottom: "18px" }}>
-          <h3 className="section-title" style={{ marginTop: 0 }}>Output Owner</h3>
-          <div style={{ color: "var(--text-light)", fontSize: "14px", marginBottom: "12px" }}>
-            {hasOutputOwner
-              ? "Pick the datasets to train on in the Catalogue, then configure the federated learning session."
-              : "Fill in the federated learning configuration form."}
-          </div>
-          <button
-            className="btn btn-primary"
-            type="button"
-            style={{ width: "auto" }}
-            onClick={() => navigate("/app/services/run", { state: { technique: "FL", returnTo: location.pathname } })}
-          >
-            Choose Datasets in Catalogue
-          </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Messages Section for the output owner / user side: notifications
           this user has sent, plus each recipient's response. */}
@@ -626,398 +329,6 @@ export default function FederatedLearningDashboard() {
         </div>
       )}
 
-      {/* Notifications Section for Data Providers */}
-      {hasDataProvider && (
-        <div className="card" style={{ marginBottom: "18px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-              <h3 className="section-title" style={{ margin: 0 }}>Notifications</h3>
-              {unreadCount > 0 && (
-                <span style={{
-                  backgroundColor: "var(--primary-color, #6c63ff)",
-                  color: "white",
-                  borderRadius: "12px",
-                  padding: "2px 10px",
-                  fontSize: "0.8rem",
-                  fontWeight: 600,
-                }}>
-                  {unreadCount} new
-                </span>
-              )}
-            </div>
-            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-              <span style={{
-                fontSize: "0.75rem",
-                color: wsConnected ? "var(--success-color, #27ae60)" : "#888",
-                display: "flex",
-                alignItems: "center",
-                gap: "4px"
-              }}>
-                {wsConnected ? "● Live" : "○ Offline"}
-              </span>
-              <button
-                className="btn btn-secondary"
-                style={{ width: "auto", padding: "6px 12px", fontSize: "0.85rem" }}
-                onClick={() => {
-                  console.log('[DEBUG] Manual refresh clicked');
-                  fetchNotifications();
-                }}
-              >
-                Refresh
-              </button>
-              <button
-                className="btn btn-secondary"
-                style={{ width: "auto", padding: "6px 12px", fontSize: "0.85rem" }}
-                onClick={() => setShowNotifications(!showNotifications)}
-              >
-                {showNotifications ? "Hide" : "Show"} Notifications
-              </button>
-              {visibleNotifications.length > 0 && (
-                <button
-                  className="btn btn-secondary"
-                  style={{ width: "auto", padding: "6px 12px", fontSize: "0.85rem" }}
-                  onClick={() => handleClearAll(visibleNotifications.map(n => n.id))}
-                >
-                  Clear All
-                </button>
-              )}
-            </div>
-          </div>
-
-          {showNotifications && (
-            <div style={{ marginTop: "16px" }}>
-              {notificationsLoading ? (
-                <div style={{ padding: "12px", color: "#888", fontSize: "0.9rem" }}>Loading notifications...</div>
-              ) : visibleNotifications.length === 0 ? (
-                <div style={{ padding: "12px", color: "#888", fontSize: "0.9rem" }}>No notifications yet.</div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                  {visibleNotifications.map((notification) => {
-                    const payload = typeof notification.payload === "string"
-                      ? (() => { try { return JSON.parse(notification.payload || "{}"); } catch { return {}; } })()
-                      : (notification.payload || {});
-                    const isRequest = payload.kind === "participation_request";
-                    const isRoster = payload.kind === "participation_roster";
-                    const isSessionStart = payload.kind === "fl_session_start";
-                    // Participation negotiation (gov_layer fl_negotiation.go):
-                    // a 2nd+ request carries final_warning; declining it removes
-                    // the provider, who then gets removed_from_session while the
-                    // rest get participation_update with the updated list.
-                    const isUpdate = payload.kind === "participation_update";
-                    const isRemovedNotice = payload.kind === "removed_from_session";
-                    // gov_layer's Final Roster (fl_session.go notifyRoster) also
-                    // sends the session contract for signing, which happens on
-                    // the Contracts page with the provider's key.
-                    const isSignRequest = payload.kind === "final_roster";
-                    const finalWarning = (isRequest || isUpdate) && !!payload.final_warning;
-                    // Both a request and an updated-list notice ask willing / not willing.
-                    const isAnswerable = isRequest || isUpdate;
-                    const superseded = isAnswerable && latestAskBySession[payload.submission_id || ""] !== notification.id;
-                    const selectedList = Array.isArray(payload.selected_providers) ? payload.selected_providers : [];
-                    const requestedList = Array.isArray(payload.requested_providers) ? payload.requested_providers : [];
-                    const willingList = Array.isArray(payload.willing_providers) ? payload.willing_providers : [];
-                    const ownerLabel = payload.output_owner_id || notification.sender_username || "output owner";
-                    const responded = !!notification.response;
-                    const contract = payload.contract && typeof payload.contract === "object" ? payload.contract : null;
-                    // Governance layer's unified contract schema: parties is a
-                    // fixed-shape object ({user, data_providers[], ...}), not a
-                    // role-tagged map — read the arrays/fields directly.
-                    const contractProviders = Array.isArray(contract?.parties?.data_providers) ? contract.parties.data_providers : [];
-                    const draftingParty = contract?.parties?.user || null;
-                    const sessionInfo = contract?.session_info || {};
-                    return (
-                    <div
-                      key={notification.id}
-                      style={{
-                        padding: "12px 16px",
-                        borderRadius: "8px",
-                        backgroundColor: notification.read ? "var(--bg-light, #f8f9fa)" : "rgba(108, 99, 255, 0.08)",
-                        border: `1px solid ${notification.read ? "var(--border-color, #ddd)" : "rgba(108, 99, 255, 0.3)"}`,
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "8px",
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px" }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: "0.75rem", color: "#888", marginBottom: "4px" }}>
-                            {new Date(notification.created_at).toLocaleString()}
-                          </div>
-                          <div style={{
-                            fontSize: "0.95rem",
-                            fontWeight: notification.read ? 400 : 500,
-                            color: "var(--text-dark, #333)",
-                          }}>
-                            {notification.message}
-                          </div>
-                          <div style={{ fontSize: "0.8rem", color: "var(--primary-color, #6c63ff)", marginTop: "4px" }}>
-                            From: {ownerLabel}
-                          </div>
-                          {isSignRequest && (
-                            <button
-                              type="button"
-                              className="btn btn-primary"
-                              style={{ width: "auto", marginTop: "8px", padding: "6px 14px", fontSize: "0.8rem" }}
-                              onClick={() => navigate("/app/services/contracts", { state: { returnTo: location.pathname } })}
-                            >
-                              Sign Contract
-                            </button>
-                          )}
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          {!isAnswerable && !notification.read && (
-                            <button
-                              onClick={() => handleMarkRead(notification.id)}
-                              style={{
-                                padding: "4px 10px", fontSize: "0.75rem",
-                                backgroundColor: "var(--primary-color, #6c63ff)", color: "white",
-                                border: "none", borderRadius: "4px", cursor: "pointer", whiteSpace: "nowrap",
-                              }}
-                            >
-                              Mark Read
-                            </button>
-                          )}
-                          {!isAnswerable && notification.read && (
-                            <span style={{ fontSize: "0.75rem", color: "#888", whiteSpace: "nowrap" }}>Read</span>
-                          )}
-                          <button
-                            onClick={() => handleDismiss(notification.id)}
-                            title="Close"
-                            aria-label="Close"
-                            style={{
-                              padding: "2px 8px", fontSize: "0.9rem", lineHeight: 1,
-                              backgroundColor: "transparent", color: "#888",
-                              border: "1px solid var(--border-color, #ddd)", borderRadius: "4px",
-                              cursor: "pointer", whiteSpace: "nowrap",
-                            }}
-                          >
-                            ×
-                          </button>
-                        </div>
-                      </div>
-
-                      {isUpdate && payload.removed_provider && (
-                        <div style={{
-                          fontSize: "0.8rem", padding: "6px 10px", borderRadius: "6px",
-                          background: "rgba(239, 68, 68, 0.08)", color: "#991b1b",
-                          border: "1px solid rgba(239, 68, 68, 0.3)",
-                        }}>
-                          <strong>{payload.removed_provider}</strong> declined a second time and was removed from this session. The list below is the updated one.
-                        </div>
-                      )}
-
-                      {isRemovedNotice && (
-                        <div style={{
-                          fontSize: "0.85rem", fontWeight: 500, padding: "8px 12px", borderRadius: "6px",
-                          background: "#991b1b", color: "white",
-                        }}>
-                          You have been removed from this session. You won't receive further requests for it.
-                        </div>
-                      )}
-
-                      {(isRequest || isUpdate) && (requestedList.length > 0 || selectedList.length > 0) && (() => {
-                        const willingKeys = new Set(willingList.map(p => p.username || p.id));
-                        return (
-                        <div style={{ fontSize: "0.8rem", color: "var(--text-light, #555)", display: "flex", flexDirection: "column", gap: "4px" }}>
-                          {requestedList.length > 0 && (
-                            <div>
-                              <strong>Requested to participate ({requestedList.length}):</strong>
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px" }}>
-                                {requestedList.map((p, i) => {
-                                  const key = p.username || p.id;
-                                  const isWilling = willingKeys.has(key);
-                                  return (
-                                    <span
-                                      key={key || i}
-                                      title={isWilling ? "Willing to participate" : "Not confirmed willing yet"}
-                                      style={{
-                                        padding: "2px 10px",
-                                        borderRadius: "10px",
-                                        fontSize: "0.75rem",
-                                        fontWeight: 500,
-                                        color: "white",
-                                        backgroundColor: isWilling ? "var(--success-color, #27ae60)" : "#e74c3c",
-                                      }}
-                                    >
-                                      {key}
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                          {selectedList.length > 0 && (
-                            <div>
-                              <strong>Selected by output owner ({selectedList.length}):</strong> {selectedList.map(p => p.username || p.id).join(", ")}
-                            </div>
-                          )}
-                        </div>
-                        );
-                      })()}
-
-                      {isRoster && (willingList.length > 0 || selectedList.length > 0) && (
-                        <div style={{ fontSize: "0.8rem", color: "var(--text-light, #555)", display: "flex", flexDirection: "column", gap: "2px" }}>
-                          {willingList.length > 0 && (
-                            <div>
-                              <strong>Willing to participate ({willingList.length}):</strong> {willingList.map(p => p.username || p.id).join(", ")}
-                            </div>
-                          )}
-                          {selectedList.length > 0 && (
-                            <div>
-                              <strong>Selected by output owner ({selectedList.length}):</strong> {selectedList.map(p => p.username || p.id).join(", ")}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {contract && (
-                        <div style={{
-                          marginTop: "4px",
-                          padding: "10px 12px",
-                          borderRadius: "8px",
-                          background: "var(--bg-light, #f8f9fa)",
-                          border: "1px solid rgba(108, 99, 255, 0.3)",
-                          fontSize: "0.8rem",
-                          color: "var(--text-light, #555)",
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: "6px",
-                        }}>
-                          <div style={{ fontWeight: 600, color: "var(--primary-color, #6c63ff)", fontSize: "0.85rem" }}>
-                            📜 Federated Learning Contract
-                          </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 10px" }}>
-                            <span style={{ color: "#888" }}>Session</span><span><code>{sessionInfo.session_id}</code></span>
-                            <span style={{ color: "#888" }}>Requested by</span><span>{sessionInfo.requested_by}</span>
-                          </div>
-                          {draftingParty && (
-                            <div>
-                              <strong>Output owner:</strong> {draftingParty.name || draftingParty.id}
-                            </div>
-                          )}
-                          {contractProviders.length > 0 && (
-                            <div>
-                              <strong>Participating data providers ({contractProviders.length}):</strong>
-                              <ul style={{ margin: "4px 0 0", paddingLeft: "18px" }}>
-                                {contractProviders.map((p, i) => (
-                                  <li key={p.id || p.name || i}>
-                                    {p.name || p.id}{p.dataset_name ? ` — ${p.dataset_name}` : ""}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {isAnswerable && !responded && superseded && (
-                        <div style={{ fontSize: "0.85rem", color: "#888", fontStyle: "italic" }}>
-                          Replaced by a newer message for this session - answer the latest one.
-                        </div>
-                      )}
-
-                      {isAnswerable && !responded && !superseded && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                          {finalWarning && (
-                            <div style={{
-                              fontSize: "0.85rem", fontWeight: 500, padding: "8px 12px", borderRadius: "6px",
-                              background: "rgba(231, 76, 60, 0.1)", color: "#991b1b",
-                              border: "1px solid rgba(231, 76, 60, 0.4)",
-                            }}>
-                              You declined an earlier request: if you decline again, you will be removed from the session.
-                            </div>
-                          )}
-                          <textarea
-                            placeholder="Optional: a note for the output owner (e.g. why you can't participate)"
-                            value={responseDrafts[notification.id] || ""}
-                            onChange={e => setResponseDrafts(prev => ({ ...prev, [notification.id]: e.target.value }))}
-                            rows={2}
-                            style={{
-                              width: "100%", fontSize: "0.85rem", padding: "8px",
-                              borderRadius: "6px", border: "1px solid var(--border-color, #ddd)",
-                              resize: "vertical", boxSizing: "border-box",
-                            }}
-                          />
-                          <div style={{ display: "flex", gap: "8px" }}>
-                            <button
-                              onClick={() => handleRespond(notification.id, "accepted")}
-                              disabled={respondingId === notification.id || !canJoinFl}
-                              title={canJoinFl ? undefined : "You need the infra-provider role and a filled infrastructure form to take part"}
-                              style={{
-                                padding: "6px 14px", fontSize: "0.8rem",
-                                backgroundColor: "var(--success-color, #27ae60)", color: "white",
-                                border: "none", borderRadius: "6px",
-                                cursor: respondingId === notification.id ? "default" : "pointer",
-                              }}
-                            >
-                              {respondingId === notification.id ? "Sending…" : "Yes, I'm willing"}
-                            </button>
-                            <button
-                              onClick={() => handleRespond(notification.id, "declined", finalWarning)}
-                              disabled={respondingId === notification.id}
-                              style={{
-                                padding: "6px 14px", fontSize: "0.8rem",
-                                backgroundColor: "#e74c3c", color: "white",
-                                border: "none", borderRadius: "6px",
-                                cursor: respondingId === notification.id ? "default" : "pointer",
-                              }}
-                            >
-                              No, not willing
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {isSessionStart && (
-                        <div style={{ display: "flex", gap: "8px" }}>
-                          <button
-                            onClick={() => joinSession(notification)}
-                            disabled={signingIn}
-                            style={{
-                              padding: "6px 14px", fontSize: "0.8rem",
-                              backgroundColor: "var(--primary-color, #6c63ff)", color: "white",
-                              border: "none", borderRadius: "6px",
-                              cursor: signingIn ? "default" : "pointer",
-                            }}
-                          >
-                            {signingIn ? "Signing in..." : "Go to session"}
-                          </button>
-                        </div>
-                      )}
-
-                      {isAnswerable && responded && (
-                        <div style={{
-                          fontSize: "0.85rem", fontWeight: 500,
-                          color: notification.response === "accepted" ? "var(--success-color, #27ae60)" : "#e74c3c",
-                        }}>
-                          {notification.response === "accepted" ? "✅ You accepted this request." : "❌ You declined this request."}
-                          {notification.response_message && (
-                            <div style={{ fontWeight: 400, color: "var(--text-light, #555)", marginTop: "2px" }}>
-                              Your note: {notification.response_message}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      <FLSessionStartModal
-        open={sessionStartModal.open}
-        notification={sessionStartModal.notification}
-        onClose={() => setSessionStartModal({ open: false, notification: null })}
-        onSignIn={() => joinSession(sessionStartModal.notification)}
-        signingIn={signingIn}
-        result={azureSignInResult}
-        vmName={dpVmName}
-        onVmNameChange={setDpVmName}
-      />
     </div>
   );
 }
