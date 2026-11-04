@@ -323,11 +323,11 @@ export async function startFlSession(submissionId, azureToken, participatingProv
 }
 
 // Data provider: re-enter the P3DX password to authorize this session's
-// client VM. The password goes only to p3dx-aaa, which hands the resulting
+// client VM. The password goes only to the controlplane, which hands the resulting
 // VM token straight to the orchestrator - the browser only ever gets back
 // an opaque credential_id to pass on to triggerAutoProvision.
 export async function issueVmCredential(submissionId, password, token) {
-  const res = await authFetch(`${GOV_URL}/me/fl/vm-credentials`, {
+  const res = await authFetch(`${CONTROLPLANE_URL}/p3dx/fl/vm-credentials`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
