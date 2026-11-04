@@ -3900,3 +3900,51 @@ textarea.input {
     justify-content: flex-end;
   }
 }
+
+/* VM provisioning: grouped phases with collapsible substep checklists */
+.prov-phases { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.prov-phase { border: 1px solid var(--border-color); border-radius: 8px; }
+.prov-phase__head {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px;
+  background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.prov-phase__summary {
+  flex: 1; min-width: 0; color: var(--text-light);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.prov-substeps { list-style: none; margin: 0; padding: 0 10px 8px 34px; }
+.prov-substep { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 6px; padding: 3px 0; }
+.prov-substep svg, .prov-phase__head svg { flex-shrink: 0; }
+.prov-spin { animation: prov-spin 1s linear infinite; }
+@keyframes prov-spin { to { transform: rotate(360deg); } }
+.prov-phase--pending > .prov-phase__head > svg:first-child,
+.prov-substep--pending > svg:first-child { color: var(--text-light); }
+.prov-phase--running > .prov-phase__head > svg:first-child,
+.prov-substep--running > svg:first-child { color: var(--primary-color); }
+.prov-phase--complete > .prov-phase__head > svg:first-child,
+.prov-substep--complete > svg:first-child { color: #10b981; }
+.prov-phase--error > .prov-phase__head > svg:first-child,
+.prov-substep--error > svg:first-child { color: #ef4444; }
+.prov-phase--complete { border-color: rgba(16, 185, 129, 0.25); }
+.prov-phase--error { border-color: rgba(239, 68, 68, 0.25); background: rgba(239, 68, 68, 0.06); }
+.prov-substep--pending { color: var(--text-light); }
+.prov-substep--error { color: #991b1b; }
+.prov-phase--stopped > .prov-phase__head > svg:first-child,
+.prov-substep--stopped > svg:first-child { color: var(--text-light); }
+.prov-substep--stopped { color: var(--text-light); }
+/* A failed step: plain message first, raw output only on request. */
+.prov-failure { flex-basis: 100%; margin: 2px 0 4px 22px; }
+.prov-failure__msg { color: #991b1b; font-weight: 500; }
+.prov-failure__toggle {
+  margin-top: 4px; padding: 0; border: 0; background: none; cursor: pointer;
+  color: var(--primary-color); font-size: 12px; text-decoration: underline;
+}
+.prov-failure__raw {
+  margin: 6px 0 0; padding: 8px 10px; max-height: 240px; overflow: auto;
+  white-space: pre-wrap; word-break: break-word; font-size: 11.5px; line-height: 1.45;
+  color: var(--text-color, #333); background: rgba(0, 0, 0, 0.04); border-radius: 6px;
+}
+.prov-progress { padding: 0 10px 8px 34px; }
+.prov-progress__bar { height: 6px; border-radius: 3px; background: var(--border-color); overflow: hidden; }
+.prov-progress__fill { height: 100%; background: var(--primary-color); transition: width 0.3s ease; }
+.prov-progress__label { margin-top: 4px; color: var(--text-light); }
