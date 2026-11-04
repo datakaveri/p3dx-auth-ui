@@ -1,17 +1,12 @@
 import { X } from "lucide-react";
+import { flVmName } from "./fl/vmName";
 
-// VM provisioning progress is deliberately NOT shown here - it lives in the
-// normal dashboard page (FederatedLearningDashboard's own section, fed by
-// the same vm-provisioning SSE subscription) so it stays visible after this
-// popup is closed, instead of disappearing with it.
-//
-// The VM Name field IS shown here (as well as on the separate Data Provider
-// Form) - editing it right where "Sign in with Azure" is clicked means the
-// name that actually gets used can't be missed by skipping a different part
-// of the page. Both write to the same DP_VM_NAME_KEY sessionStorage entry
-// that startVmProvisioning reads at sign-in time.
-export default function FLSessionStartModal({ open, notification, onClose, onSignIn, signingIn, result, vmName, onVmNameChange }) {
+// VM provisioning progress is deliberately NOT shown here - it lives on the
+// FL Orchestrator page the provider is sent to after signing in. The VM name
+// is derived from the session (see flVmName), not typed by the provider.
+export default function FLSessionStartModal({ open, notification, onClose, onSignIn, signingIn, result, submissionId }) {
   if (!open || !notification) return null;
+  const vmName = flVmName(submissionId);
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" onClick={onClose}>
@@ -25,23 +20,14 @@ export default function FLSessionStartModal({ open, notification, onClose, onSig
         <div className="modal-body">
           <p>{notification.message}</p>
           <p>Sign in with your Azure account to join this session.</p>
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label>VM Name</label>
-            <input
-              className="input"
-              placeholder="e.g. alice-data-provider"
-              value={vmName}
-              onChange={(e) => onVmNameChange(e.target.value)}
-              disabled={signingIn || result?.ok}
-            />
-            <div style={{ fontSize: "12px", color: "var(--text-light)", marginTop: "4px" }}>
-              This is what your VM will be named once you sign in.
-            </div>
-          </div>
+          {vmName && (
+            <p style={{ fontSize: "13px", color: "var(--text-light)" }}>
+              Your VM will be named <code>{vmName}</code>
+            </p>
+          )}
           {result && (
             <p style={{ color: result.ok ? "var(--success-color, #27ae60)" : "var(--danger-color, #e74c3c)" }}>
               {result.text}
-              {result.ok && " Check the VM provisioning section on this page for progress."}
             </p>
           )}
         </div>

@@ -467,3 +467,30 @@ export function subscribeToNotifications({ onOpen, onNotification, onError }) {
     controller?.abort();
   };
 }
+
+// Dismiss a notification server-side (persists; it no longer comes back).
+export async function dismissNotification(notificationId, token) {
+  const res = await authFetch(`${GOV_URL}/me/notifications/${encodeURIComponent(notificationId)}/dismiss`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to dismiss notification");
+  }
+  return data;
+}
+
+// The caller's notification history: answers (accepted/declined) and dismissals.
+// Returns { status, entries }.
+export async function getNotificationAudit(token) {
+  const res = await authFetch(`${GOV_URL}/me/audit/notifications`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok || data?.status === "FAILED") {
+    throw buildHttpError(res, data, "Failed to load notification history");
+  }
+  return data;
+}

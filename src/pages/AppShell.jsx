@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { getMe } from "../api/auth";
+import { useNotifications, parseNotificationPayload } from "../hooks/useNotifications";
+import NotificationBell from "../components/NotificationBell";
+import NotificationsPanel from "../components/NotificationsPanel";
+import FLSessionStartModal from "../components/FLSessionStartModal";
+import "../styles/notifications.css";
 import { logout } from "../api/oidc";
 import { getTokenExpiryMs, refreshSession, SESSION_EXPIRED_EVENT, TOKEN_REFRESHED_EVENT } from "../api/session";
 import dataForPublicGoodLogo from "../assets/data-for-public-good-logo.png";
@@ -191,6 +196,11 @@ export default function AppShell() {
   const hasInfraProvider = roles.includes("infra_provider");
   const hasDataProvider = roles.includes("provider");
 
+  // Notification bell + panel + FL-session-start sign-in flow, available on every page.
+  const notif = useNotifications(token, user);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const closePanel = useCallback(() => setPanelOpen(false), []);
+
   useEffect(() => {
     if (!token) {
       navigate("/login", { replace: true });
@@ -296,13 +306,8 @@ export default function AppShell() {
       return;
     }
 
-    // Projects (see the sidebar link below) isn't for data providers - they
-    // aren't shown project_id/roster info, only output owners and the
-    // fl-orchestrator (handled above) are.
-    if (hasDataProvider && path.startsWith("/app/projects")) {
-      navigate("/app/services", { replace: true });
-      return;
-    }
+    // Projects (see the sidebar link below) is open to data providers too:
+    // they see the projects they are a data provider on, to reopen their run.
 
     if (isAdmin && (path.startsWith("/app/services") || path.startsWith("/app/role-request"))) {
       navigate("/app/admin", { replace: true });
@@ -312,7 +317,7 @@ export default function AppShell() {
     if (!isAdmin && path.startsWith("/app/admin")) {
       navigate("/app/services", { replace: true });
     }
-  }, [user, isAdmin, isOrchestrator, hasDataProvider, location.pathname, navigate]);
+  }, [user, isAdmin, isOrchestrator, location.pathname, navigate]);
 
   if (loading || !user) {
     return (
@@ -352,6 +357,16 @@ export default function AppShell() {
           <div className="nav-subtitle">
             Signed in as <span style={{ color: "var(--text-dark)", fontWeight: 800 }}>{user.username}</span>
           </div>
+        </div>
+
+        {/* Its own block under "Signed in as", above the page links. */}
+        <div className="sidebar-notif">
+          <NotificationBell
+            unreadCount={notif.unreadCount}
+            collapsed={collapsed}
+            onClick={() => setPanelOpen(true)}
+            onMouseMove={trackGlow}
+          />
         </div>
 
         <nav className="sidebar-nav">
@@ -401,17 +416,15 @@ export default function AppShell() {
                   <span>Upload Dataset</span>
                 </a>
               ) : null}
-              {!hasDataProvider ? (
-                <a
-                  title={collapsed ? "Projects" : undefined}
-                  className={location.pathname.startsWith("/app/projects") ? "sidebar-link sidebar-link-active" : "sidebar-link"}
-                  href="/app/projects"
-                  onMouseMove={trackGlow}
-                >
-                  {ICONS.project}
-                  <span>Projects</span>
-                </a>
-              ) : null}
+              <a
+                title={collapsed ? "Projects" : undefined}
+                className={location.pathname.startsWith("/app/projects") ? "sidebar-link sidebar-link-active" : "sidebar-link"}
+                href="/app/projects"
+                onMouseMove={trackGlow}
+              >
+                {ICONS.project}
+                <span>Projects</span>
+              </a>
               {/* Role-exclusive management dashboards ("My Infrastructure" /
                   "My Datasets") — migrated here from a UserDashboard.jsx
                   action card so they're reachable regardless of which
@@ -501,6 +514,17 @@ export default function AppShell() {
           <Outlet context={{ user, token, isAdmin, refreshUser }} />
         </div>
       </main>
+
+      <NotificationsPanel open={panelOpen} onClose={closePanel} n={notif} />
+      <FLSessionStartModal
+        open={notif.sessionStartModal.open}
+        notification={notif.sessionStartModal.notification}
+        onClose={notif.closeSessionStartModal}
+        onSignIn={() => notif.joinSession(notif.sessionStartModal.notification)}
+        signingIn={notif.signingIn}
+        result={notif.azureSignInResult}
+        submissionId={parseNotificationPayload(notif.sessionStartModal.notification).submission_id}
+      />
     </div>
   );
 }

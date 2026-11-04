@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { listMyDatasetContracts, listMyDatasetPolicies } from "../api/policies";
+import { getNotificationAudit } from "../api/auth";
 
 // How often the page re-fetches while open, so the stats stay live.
 const REFRESH_MS = 5000;
@@ -85,6 +86,67 @@ const STATUSES = [
 // contracts aren't recorded per dataset). Re-fetched every REFRESH_MS. A
 // dataset is "live" (green) while a contract using it has its TEE run
 // switched on (job_state tee_enabled).
+// Notification history: requests this user answered (accepted / declined) and
+// notifications they dismissed, from gov_layer's audit log.
+function NotificationHistory({ token }) {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    let cancelled = false;
+    getNotificationAudit(token)
+      .then(res => { if (!cancelled) { setEntries(Array.isArray(res?.entries) ? res.entries : []); setError(null); } })
+      .catch(err => { if (!cancelled) setError(err.message || "Failed to load notification history"); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [token]);
+
+  const tone = (a) => (a === "accepted" ? "audit-badge--ok" : a === "declined" ? "audit-badge--failed" : "table-badge--neutral");
+
+  return (
+    <>
+      <h4 className="section-title" style={{ fontSize: "16px" }}>Notification history</h4>
+      {error ? <div className="error-message" style={{ marginBottom: "12px" }}>{error}</div> : null}
+      <div className="card" style={{ padding: 0 }}>
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Kind</th>
+                <th>From</th>
+                <th>Session</th>
+                <th>Action</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={6} className="muted">Loading...</td></tr>
+              ) : entries.length === 0 ? (
+                <tr><td colSpan={6} className="muted">No answered or dismissed notifications yet</td></tr>
+              ) : (
+                entries.map(e => (
+                  <tr key={e.id}>
+                    <td style={{ whiteSpace: "nowrap" }}>{e.created_at ? new Date(e.created_at).toLocaleString() : "—"}</td>
+                    <td>{e.kind || "—"}</td>
+                    <td>{e.sender_username || "—"}</td>
+                    <td>{e.submission_id ? <code style={{ fontSize: "12px" }}>{e.submission_id}</code> : "—"}</td>
+                    <td><span className={`table-badge ${tone(e.action)}`}>{e.action}</span></td>
+                    <td>{e.response_message || "—"}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function MyAuditDashboard() {
   const { user, token } = useOutletContext();
   const roles = useMemo(() => user?.roles || [], [user]);
@@ -457,6 +519,8 @@ export default function MyAuditDashboard() {
 
         </>
       )}
+
+      <NotificationHistory token={token} />
     </div>
   );
 }
