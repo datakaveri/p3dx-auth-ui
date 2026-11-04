@@ -42,6 +42,8 @@ export const router = createBrowserRouter([
       { path: "services/fl/federated-learning", element: <FederatedLearning /> },
       { path: "services/fl/federated-learning/output/:submissionId", element: <FlOutput /> },
       { path: "services/fl/orchestrator", element: <FlOrchestrator /> },
+      { path: "services/fl/orchestrator/:submissionId", element: <FlOrchestrator /> },
+      { path: "services/fl/run/:submissionId", element: <FlOrchestrator viewAs="owner" /> },
       { path: "services/smpc", element: <UserDashboard /> },
       { path: "services/dp", element: <UserDashboard /> },
       { path: "services/policies", element: <PolicyForm /> },

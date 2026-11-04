@@ -40,9 +40,13 @@ export async function getVmProvisioningToken(role, token) {
 // second `az login` - distinct runKeys run fully concurrently.
 // credentialId (from issueVmCredential) is required by the backend for a
 // data-provider run tied to a submission; omitted from the body otherwise.
-export async function triggerAutoProvision(role, token, vmName, runKey, submissionId = null, credentialId = null) {
-  const body = { role, vmName, runKey, submissionId };
+// vmName is only sent when there is no submissionId (the orchestrator names
+// session VMs itself); outputOwnerUsername is optional.
+export async function triggerAutoProvision(role, token, vmName, runKey, submissionId = null, credentialId = null, outputOwnerUsername = null) {
+  const body = { role, runKey, submissionId };
+  if (!submissionId) body.vmName = vmName;
   if (credentialId) body.credentialId = credentialId;
+  if (outputOwnerUsername) body.outputOwnerUsername = outputOwnerUsername;
   const res = await authFetch(`${ORCHESTRATOR_URL}/p3dx/vm-provisioning/auto-create`, {
     method: "POST",
     headers: authHeaders(token),
@@ -80,18 +84,23 @@ export async function downloadVmPrivateKey(token, runToken) {
   URL.revokeObjectURL(url);
 }
 
-// Live VM-provisioning updates. Pass { runToken } to track one specific run
-// unambiguously (what triggerAutoProvision's response gives you - use this
-// whenever multiple runs might be in flight at once); pass { username, role }
-// for the older "most recent run for this username+role" behavior, kept for
-// the manual deploy.sh flow which never has a run token. Returns an
-// unsubscribe function. onUpdate receives { status, events } each time a new
-// step is reported.
-export function subscribeToVmProvisioning({ runToken, username, role }, onUpdate) {
-  const query = runToken
-    ? `token=${encodeURIComponent(runToken)}`
-    : `username=${encodeURIComponent(username)}&role=${encodeURIComponent(role)}`;
-  const es = new EventSource(`${ORCHESTRATOR_URL}/p3dx/vm-provisioning/stream?${query}`);
+// Lists the caller's provisioning runs, newest first (for role "user", runs
+// whose output owner is the caller). Optionally filtered by submissionId.
+export async function getMyRuns(token, { submissionId } = {}) {
+  const q = submissionId ? `?submissionId=${encodeURIComponent(submissionId)}` : "";
+  const res = await authFetch(`${ORCHESTRATOR_URL}/p3dx/vm-provisioning/runs${q}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await parseJsonSafe(res);
+  if (!res.ok) throw new Error(data?.error || `Failed to load runs (${res.status})`);
+  return Array.isArray(data?.runs) ? data.runs : [];
+}
+
+// Live VM-provisioning updates for one specific run, identified by runToken
+// (from triggerAutoProvision's response or getMyRuns). Returns an unsubscribe
+// function. onUpdate receives { status, events, vmReady } on each new step.
+export function subscribeToVmProvisioning({ runToken }, onUpdate) {
+  const es = new EventSource(`${ORCHESTRATOR_URL}/p3dx/vm-provisioning/stream?token=${encodeURIComponent(runToken)}`);
   es.onmessage = (evt) => {
     try {
       onUpdate(JSON.parse(evt.data));

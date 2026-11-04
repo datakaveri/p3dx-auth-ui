@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { getMyNotifications, markNotificationRead, startFlSession } from "../../api/auth";
 import { getAzureAccessToken } from "../../api/azureAuth";
+import { getMyRuns } from "../../api/vmProvisioning";
 import VmProvisioningPanel from "../../components/VmProvisioningPanel";
 
 function parseNotificationPayload(n) {
@@ -12,7 +13,20 @@ function parseNotificationPayload(n) {
   }
 }
 
+// getMyRuns is newest first; a restarted session keeps its id, so only its
+// newest run is shown (older attempts are finished history).
+function latestRunPerSubmission(runs) {
+  const seen = new Set();
+  return runs.filter((r) => {
+    const key = r.submissionId || r.token;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 const POLL_MS = 5000;
+const RUNS_POLL_MS = 15000;
 
 // Landing page for the fl-orchestrator platform operator account (see
 // p3dx-aaa/scripts/create-fl-orchestrator-user.js and the isOrchestrator
@@ -32,11 +46,25 @@ export default function FL_Orchestrator() {
   // thing that still serializes is the actual `terraform apply` step, handled
   // server-side (vmAutoProvision.service.js queues those FIFO) - this page
   // doesn't need to know about that queueing.
-  const [activeSessions, setActiveSessions] = useState([]); // [{ notificationId, submissionId, vmName }]
+  // Loaded from the orchestrator's run list (not local state) so a refresh
+  // keeps them: [{ token, submissionId, vmName, status, ... }].
+  const [activeSessions, setActiveSessions] = useState([]);
   // A Set, not a single id - with multiple rows startable at once, more than
   // one can be mid-flight (Azure sign-in + start-fl-session) simultaneously.
   const [processingIds, setProcessingIds] = useState(() => new Set());
   const [processError, setProcessError] = useState(null);
+  // Runs started from this page (a new session, or a Retry), each mounting a
+  // panel that sends its own auto-create: [{ key, submissionId, outputOwnerUsername }].
+  // "Start Again" reuses the session id, so a submission can already have an
+  // older, finished run - the newest start for a submission always wins over
+  // anything getMyRuns lists for it, and is never hidden by an older run.
+  const [startedRuns, setStartedRuns] = useState([]);
+
+  const startRun = (submissionId, outputOwnerUsername) =>
+    setStartedRuns((prev) => [
+      ...prev.filter((s) => s.submissionId !== submissionId),
+      { key: crypto.randomUUID(), submissionId, outputOwnerUsername },
+    ]);
 
   const fetchPending = async () => {
     if (!token) return;
@@ -52,6 +80,23 @@ export default function FL_Orchestrator() {
       setLoading(false);
     }
   };
+
+  const fetchRuns = async () => {
+    if (!token) return;
+    try {
+      const runs = await getMyRuns(token);
+      setActiveSessions(runs.filter((r) => r.role === "user" && r.token));
+    } catch {
+      // keep the last known list; the next poll retries
+    }
+  };
+
+  useEffect(() => {
+    fetchRuns();
+    const h = setInterval(fetchRuns, RUNS_POLL_MS);
+    return () => clearInterval(h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   useEffect(() => {
     fetchPending();
@@ -75,14 +120,8 @@ export default function FL_Orchestrator() {
       );
       await markNotificationRead(notification.id, token);
       setPending((prev) => prev.filter((n) => n.id !== notification.id));
-      setActiveSessions((prev) => [
-        ...prev,
-        {
-          notificationId: notification.id,
-          submissionId: payload.submission_id,
-          vmName: payload.vm_name || payload.output_owner_username || "",
-        },
-      ]);
+      startRun(payload.submission_id, payload.output_owner_username);
+      fetchRuns();
     } catch (e) {
       setProcessError(`Submission ${payload.submission_id}: ${e.message}`);
     } finally {
@@ -108,16 +147,29 @@ export default function FL_Orchestrator() {
       {error && <div className="fl-result-banner fl-result-banner--error">{error}</div>}
       {processError && <div className="fl-result-banner fl-result-banner--error">{processError}</div>}
 
-      {activeSessions.map((s) => (
+      {startedRuns.map((s) => (
         <VmProvisioningPanel
-          key={s.notificationId}
+          key={s.key}
           token={token}
           role="user"
-          initialVmName={s.vmName}
           autoStart
           submissionId={s.submissionId}
+          outputOwnerUsername={s.outputOwnerUsername}
+          onRetry={() => startRun(s.submissionId, s.outputOwnerUsername)}
         />
       ))}
+      {latestRunPerSubmission(activeSessions)
+        .filter((r) => !startedRuns.some((s) => s.submissionId === r.submissionId))
+        .map((r) => (
+          <VmProvisioningPanel
+            key={r.token}
+            token={token}
+            role="user"
+            submissionId={r.submissionId}
+            resumeToken={r.token}
+            onRetry={() => startRun(r.submissionId)}
+          />
+        ))}
 
       <div className="card">
         {loading ? (
