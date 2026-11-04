@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
-import { notifyProviders, checkFlDatasets, getNotificationResponses, notifyRoster, getMyNotifications, queueFlSession, getSessionContractSignatures, getRemovedProviders } from '../api/auth';
+import { notifyProviders, checkFlDatasets, getNotificationResponses, notifyRoster, getMyNotifications, queueFlSession, getSessionContractSignatures, getRemovedProviders, getMyProjects } from '../api/auth';
 import ContractSignatureStatus from '../components/ContractSignatureStatus';
 import { getFlOutput, collectFlOutput } from '../api/flOutput';
 import { outputTeaser } from '../components/fl/flOutputFormat';
@@ -107,19 +107,53 @@ function generateFormId() {
 }
 
 const FL_OUTPUT_POLL_MS = 15000;
+// How often to re-check whether the session has a contract yet (the output
+// endpoint answers 404 until it does).
+const FL_CONTRACT_CHECK_MS = 60000;
 
 // "FL output" card for the Output Owner. Polls gov_layer for the session's
 // output (pulled from the server VM when training finishes) until it's ready,
 // pausing while the tab is hidden; "View output" opens pages/FlOutput.jsx.
 // Keyed by submissionId at the call site, so a new session starts fresh.
-function FlOutputSection({ submissionId, token, sessionName }) {
+// A brand-new form has no contract yet, so nothing is polled until the
+// session shows up in the owner's projects (a project row is recorded with
+// every contract); recheckKey (e.g. the Final Roster being sent) re-checks.
+function FlOutputSection({ submissionId, token, sessionName, recheckKey }) {
   const navigate = useNavigate();
   const [output, setOutput] = useState(null);
   const [error, setError] = useState(null);
   const [collecting, setCollecting] = useState(false);
   const [collectError, setCollectError] = useState(null);
+  // null = checking; false = no contract yet; true = poll the output.
+  const [hasContract, setHasContract] = useState(null);
+  // Set when the output endpoint said 404: re-check on the slow timer only.
+  const sawNotFound = useRef(false);
 
   useEffect(() => {
+    if (hasContract) return undefined;
+    let cancelled = false;
+    const check = async () => {
+      if (document.hidden) return;
+      try {
+        const res = await getMyProjects(sessionStorage.getItem('access_token') || token);
+        const found = (res?.projects || []).some((p) => p.session_id === submissionId);
+        if (!cancelled) setHasContract(found);
+      } catch {
+        // Can't tell - fall back to asking the output endpoint directly.
+        if (!cancelled) setHasContract(true);
+      }
+    };
+    if (!sawNotFound.current) check();
+    sawNotFound.current = false;
+    const timer = setInterval(check, FL_CONTRACT_CHECK_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [submissionId, token, recheckKey, hasContract]);
+
+  useEffect(() => {
+    if (!hasContract) return undefined;
     let cancelled = false;
     let stopped = false;
     let timer = null;
@@ -137,6 +171,15 @@ function FlOutputSection({ submissionId, token, sessionName }) {
         }
       } catch (err) {
         if (cancelled) return;
+        if (err.statusCode === 404) {
+          // No contract (yet): not an error, just nothing to show so far.
+          setError(null);
+          setOutput(null);
+          sawNotFound.current = true;
+          setHasContract(false);
+          stop();
+          return;
+        }
         setError(err);
         // Not the owner - polling won't change that.
         if (err.statusCode === 403) stop();
@@ -151,7 +194,7 @@ function FlOutputSection({ submissionId, token, sessionName }) {
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [submissionId, token]);
+  }, [submissionId, token, hasContract]);
 
   const handleCollect = async () => {
     setCollectError(null);
@@ -175,7 +218,11 @@ function FlOutputSection({ submissionId, token, sessionName }) {
         </div>
       </div>
 
-      {error ? (
+      {hasContract === false ? (
+        <div className="fl-section-sub">
+          Not available yet &mdash; the output appears here once the FL session has run.
+        </div>
+      ) : error ? (
         <div className="fl-result-banner fl-result-banner--error" role="alert" style={{ marginTop: 0 }}>
           &#9888; {error.message}
         </div>
@@ -253,7 +300,7 @@ export default function FederatedLearning() {
     model: 'AlexNet',
     framework: 'flwrlabs',
     components: '',
-    max_vcpus: '',
+    min_vcpus: '',
   }));
   const [msg, setMsg] = useState(null);
   // Persist the last submission id so the report stays downloadable after a page reload.
@@ -316,11 +363,11 @@ export default function FederatedLearning() {
   // re-deriving the willing list.
   const [finalRoster, setFinalRoster] = useState([]);
 
-  // The owner's Max vCPUs (required on the configuration form). Send Message
+  // The owner's Min vCPUs required (on the configuration form). Send Message
   // checks the picked datasets against it via gov_layer, which tells both
-  // sides when a dataset's provider doesn't fit.
-  const ownerMaxVcpus = Number(formData.max_vcpus);
-  const ownerMaxVcpusValid = formData.max_vcpus !== '' && formData.max_vcpus != null && Number.isFinite(ownerMaxVcpus);
+  // sides when a dataset's provider has fewer vCPUs than that.
+  const ownerMinVcpus = Number(formData.min_vcpus);
+  const ownerMinVcpusValid = formData.min_vcpus !== '' && formData.min_vcpus != null && Number.isFinite(ownerMinVcpus) && ownerMinVcpus >= 1;
   // A picked dataset stays in the selection unless its provider was removed
   // from the session.
   const datasetSelectable = (d) => !removedProviders[d?.provider?.username];
@@ -504,8 +551,8 @@ export default function FederatedLearning() {
       setMsg({ type: 'error', text: 'Select at least one dataset before sending a message.' });
       return;
     }
-    if (!ownerMaxVcpusValid) {
-      setMsg({ type: 'error', text: 'Set Max vCPUs in your configuration before sending a message.' });
+    if (!ownerMinVcpusValid) {
+      setMsg({ type: 'error', text: 'Set Min vCPUs required in your configuration before sending a message.' });
       return;
     }
     const freshToken = sessionStorage.getItem('access_token') || token;
@@ -513,7 +560,7 @@ export default function FederatedLearning() {
       // Check the picks against the configuration first: gov_layer tells each
       // out-of-constraint dataset's provider, and only matching datasets'
       // providers get the participation request.
-      const check = await checkFlDatasets(submissionId, ownerMaxVcpus, selectedDatasets.map(d => d.dataset_id), freshToken);
+      const check = await checkFlDatasets(submissionId, ownerMinVcpus, selectedDatasets.map(d => d.dataset_id), freshToken);
       const mismatched = check.mismatched || [];
       setMismatchedDatasets(mismatched);
       setMatchingDatasets(check.matching || []);
@@ -522,13 +569,18 @@ export default function FederatedLearning() {
         if (d.provider?.id && !matchingProviders.find(p => p.id === d.provider.id)) matchingProviders.push(d.provider);
       });
       const mismatchNote = mismatched.length
-        ? ` ${mismatched.map(d => d.dataset_name).join(', ')} ${mismatched.length === 1 ? 'is' : 'are'} not under the constraint - ${mismatched.length === 1 ? 'its provider has' : 'their providers have'} been told.`
+        ? ` ${mismatched.map(d => d.dataset_name).join(', ')} ${mismatched.length === 1 ? 'is' : 'are'} below the minimum vCPUs - ${mismatched.length === 1 ? 'its provider has' : 'their providers have'} been told.`
         : '';
       if (matchingProviders.length === 0) {
-        setMsg({ type: 'error', text: `No selected dataset is under the constraint - nothing sent.${mismatchNote}` });
+        setMsg({ type: 'error', text: `No selected dataset meets the minimum vCPUs - nothing sent.${mismatchNote}` });
         return;
       }
-      const selectedPayload = matchingProviders.map(p => ({ id: p.id, username: p.username, email: p.email }));
+      const selectedPayload = matchingProviders.map(p => ({
+        id: p.id,
+        username: p.username,
+        email: p.email,
+        dataset_name: (check.matching || []).filter(d => d.provider?.id === p.id).map(d => d.dataset_name).join(', ') || undefined,
+      }));
 
       let willingProviders = [];
       try {
@@ -548,7 +600,7 @@ export default function FederatedLearning() {
         console.warn('[DEBUG] Failed to load prior responses, sending without willing list:', err);
       }
 
-      await notifyProviders(selectedPayload, selectedPayload, formData.output_owner_id, submissionId, freshToken, willingProviders);
+      await notifyProviders(selectedPayload, selectedPayload, formData.output_owner_id, submissionId, freshToken, willingProviders, ownerMinVcpus);
 
       // Add the just-notified providers to the "Selected Data-Providers" panel
       // (dedup by id so re-sending doesn't create duplicates).
@@ -639,9 +691,8 @@ export default function FederatedLearning() {
     }
 
     const freshToken = sessionStorage.getItem('access_token') || token;
-    const vmName = user?.username || '';
     try {
-      await queueFlSession(id, finalRoster, vmName, freshToken);
+      await queueFlSession(id, finalRoster, freshToken);
       setDistributeResult({
         ok: true,
         text: 'Start FL Session requested — the platform will start it shortly. This can take some time.',
@@ -755,6 +806,7 @@ export default function FederatedLearning() {
             submissionId={reportSubmissionId}
             token={token}
             sessionName={formData.model || undefined}
+            recheckKey={finalRosterSent}
           />
         )}
 
@@ -974,7 +1026,7 @@ export default function FederatedLearning() {
                 <div className="fl-form-grid">
                   <div className="form-group">
                     <label>Number of Server Rounds</label>
-                    <input className="input" type="number" value={formData.num_server_rounds} onChange={(e) => setFormData({...formData, num_server_rounds: e.target.value})} />
+                    <input className="input" type="number" required min="1" max="100" step="1" value={formData.num_server_rounds} onChange={(e) => setFormData({...formData, num_server_rounds: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>Fraction Evaluate</label>
@@ -982,19 +1034,22 @@ export default function FederatedLearning() {
                   </div>
                   <div className="form-group">
                     <label>Local Epochs</label>
-                    <input className="input" type="number" value={formData.local_epochs} onChange={(e) => setFormData({...formData, local_epochs: e.target.value})} />
+                    <input className="input" type="number" required min="1" max="5" step="1" value={formData.local_epochs} onChange={(e) => setFormData({...formData, local_epochs: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>Learning Rate</label>
-                    <input className="input" type="number" step="0.001" value={formData.learning_rate} onChange={(e) => setFormData({...formData, learning_rate: e.target.value})} />
+                    <input className="input" type="number" required min="0.000001" max="1" step="any" value={formData.learning_rate} onChange={(e) => setFormData({...formData, learning_rate: e.target.value})} />
                   </div>
                   <div className="form-group">
                     <label>Batch Size</label>
-                    <input className="input" type="number" value={formData.batch_size} onChange={(e) => setFormData({...formData, batch_size: e.target.value})} />
+                    <input className="input" type="number" required min="1" max="1024" step="1" value={formData.batch_size} onChange={(e) => setFormData({...formData, batch_size: e.target.value})} />
                   </div>
                   <div className="form-group">
-                    <label>Max vCPUs</label>
-                    <input className="input" type="number" min="1" required value={formData.max_vcpus} onChange={(e) => setFormData({...formData, max_vcpus: e.target.value})} />
+                    <label>Min vCPUs required</label>
+                    <input className="input" type="number" min="1" step="1" required value={formData.min_vcpus} onChange={(e) => setFormData({...formData, min_vcpus: e.target.value})} />
+                    <div style={{ fontSize: '12px', color: 'var(--text-light)', marginTop: '4px' }}>
+                      Data providers with fewer vCPUs than this can't take part.
+                    </div>
                   </div>
                 </div>
               </div>

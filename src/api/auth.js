@@ -59,7 +59,7 @@ export async function getMe(token) {
   };
 }
 
-export async function notifyProviders(selectedProviders, requestedProviders, outputOwnerId, submissionId, token, willingProviders = []) {
+export async function notifyProviders(selectedProviders, requestedProviders, outputOwnerId, submissionId, token, willingProviders = [], minVcpus = undefined) {
   const res = await authFetch(`${GOV_URL}/me/fl/notify-providers`, {
     method: "POST",
     headers: {
@@ -72,6 +72,7 @@ export async function notifyProviders(selectedProviders, requestedProviders, out
       willing_providers: willingProviders,
       output_owner_id: outputOwnerId,
       submission_id: submissionId,
+      min_vcpus: minVcpus,
       notified_at: new Date().toISOString(),
     }),
   });
@@ -112,17 +113,17 @@ export async function listFlDatasets(token) {
   return data;
 }
 
-// Checks the owner's picked datasets against their configuration (Max vCPUs).
+// Checks the owner's picked datasets against their configuration (Min vCPUs required).
 // gov_layer notifies each out-of-constraint dataset's provider and returns
 // { status, matching, mismatched (each with a reason), unknown }.
-export async function checkFlDatasets(submissionId, maxVcpus, datasetIds, token) {
+export async function checkFlDatasets(submissionId, minVcpus, datasetIds, token) {
   const res = await authFetch(`${GOV_URL}/me/fl/check-datasets`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ submission_id: submissionId, max_vcpus: maxVcpus, dataset_ids: datasetIds }),
+    body: JSON.stringify({ submission_id: submissionId, min_vcpus: minVcpus, dataset_ids: datasetIds }),
   });
   const data = await parseJsonSafe(res);
   if (!res.ok || data?.status === "FAILED") {
@@ -132,7 +133,7 @@ export async function checkFlDatasets(submissionId, maxVcpus, datasetIds, token)
 }
 
 // The caller's own Projects list — fl-orchestrator sees every project,
-// anyone else sees only their own (as output owner).
+// anyone else the ones they own the output of or are a data provider on.
 export async function getMyProjects(token) {
   const res = await authFetch(`${GOV_URL}/me/projects`, {
     headers: {
